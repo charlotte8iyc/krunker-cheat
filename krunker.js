@@ -92,14 +92,18 @@
   function validate() {
     if (C.game && !(C.game.players && typeof C.game.players.list !== 'undefined')) C.game = null;
     if (!C.game && C.gameCand && C.gameCand.players && typeof C.gameCand.players.list !== 'undefined') C.game = C.gameCand;
-    if (!C.me && C.game) {
+    if (C.game) {
       var l = plist();
-      if (l) for (var i = 0; i < l.length; i++) { if (l[i] && l[i].isYou) { C.me = l[i]; break; } }
+      if (l) {
+        var found = null;
+        for (var i = 0; i < l.length; i++) { if (l[i] && l[i].isYou) { found = l[i]; break; } }
+        if (found && found !== C.me) C.me = found;
+      }
     }
-    if (!C.renderer && C.game && C.game.renderer && C.game.renderer.camera) C.renderer = C.game.renderer;
-    if (!C.controls && C.game && C.game.controls && (C.game.controls.keys || C.game.controls.binds)) C.controls = C.game.controls;
-    if (!C.controls && C.controlsCand && (C.controlsCand.keys || C.controlsCand.binds)) C.controls = C.controlsCand;
-    if (!C.renderer && C.rendererCand && C.rendererCand.camera) C.renderer = C.rendererCand;
+    if ((!C.renderer || !C.renderer.camera) && C.game && C.game.renderer && C.game.renderer.camera) C.renderer = C.game.renderer;
+    if ((!C.controls || !(C.controls.keys || C.controls.binds)) && C.game && C.game.controls && (C.game.controls.keys || C.game.controls.binds)) C.controls = C.game.controls;
+    if ((!C.controls || !(C.controls.keys || C.controls.binds)) && C.controlsCand && (C.controlsCand.keys || C.controlsCand.binds)) C.controls = C.controlsCand;
+    if ((!C.renderer || !C.renderer.camera) && C.rendererCand && C.rendererCand.camera) C.renderer = C.rendererCand;
     if (C.game && C.me && C.renderer && !C.ready) { C.ready = true; ensureProcHook(); refreshStatus(); }
     if (C.game && !C.ready) refreshStatus();
   }
@@ -190,7 +194,7 @@
     var me = C.me;
     if (!me) return null;
     var s = vpSize(), cx = s.w / 2, cy = s.h / 2;
-    var r = (S.aimFov || 45);
+    var r = Math.max(5, Math.min(100, S.aimFov || 45)) / 100;
     var r2 = r * r;
     var inner = needCenter ? r2 * 0.22 : r2;
     var best = null, bestD = Infinity;
@@ -200,7 +204,8 @@
       var mid = p.y + effH(p) * 0.55;
       var sp = w2s(p.x, mid, p.z);
       if (!sp) continue;
-      var d = (sp.x - cx) * (sp.x - cx) + (sp.y - cy) * (sp.y - cy);
+      var ax = (sp.x - cx) / (cx || 1), ay = (sp.y - cy) / (cy || 1);
+      var d = ax * ax + ay * ay;
       if (d > r2) continue;
       if (needCenter && d > inner) continue;
       if (d < bestD) { bestD = d; best = p; }
@@ -222,9 +227,11 @@
       var dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
       var asin = Math.asin(Math.max(-1, Math.min(1, dy / dist)));
       var xDire = asin - 0.3 * (me.recoilAnimY || 0);
+      if (!isFinite(xDire)) xDire = isFinite(me.xDire) ? me.xDire : 0;
+      if (!isFinite(yDire)) yDire = isFinite(me.yDire) ? me.yDire : 0;
       pk[IDX.xdir] = xDire * 1000;
       pk[IDX.ydir] = yDire * 1000;
-      if (S.third) safe(function () { lookDir(xDire, yDire); });
+      safe(function () { lookDir(xDire, yDire); });
     }
     if (S.autofire) {
       var t = target || pickTarget(true);
@@ -236,10 +243,13 @@
   function lookDir(xDire, yDire) {
     var c = C.controls;
     if (!c) return;
+    var pitch = (c.pchObjc && c.pchObjc.rotation) ? c.pchObjc : findPitch(c);
     if (c.object && c.object.rotation) c.object.rotation.y = yDire;
-    var pitch = findPitch(c);
-    if (pitch) pitch.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, xDire));
+    if (pitch && pitch.rotation) pitch.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, xDire));
+    if (typeof c.xDr === 'number') c.xDr = yDire;
+    if (typeof c.yDr === 'number') c.yDr = xDire;
     if (C.renderer && C.renderer.camera && C.renderer.camera.updateProjectionMatrix) C.renderer.camera.updateProjectionMatrix();
+    if (C.renderer && typeof C.renderer.updateFrustum === 'function') safe(function () { C.renderer.updateFrustum(); });
   }
 
   function findPitch(c) {
@@ -277,7 +287,7 @@
   }
 
   function frame() {
-    if (!C.ready) validate();
+    validate();
     var me = C.me;
     ensureProcHook();
     if (S.bhop && C.controls && C.controls.binds && C.controls.binds.jump && C.controls.keys) {
@@ -504,7 +514,7 @@
     if (old) old.parentNode.removeChild(old);
     var m = document.createElement('div');
     m.id = 'kru-menu';
-    m.style.cssText = 'position:fixed;left:10px;top:10px;width:152px;background:rgba(10,9,14,.93);border:1px solid rgba(255,120,180,.38);border-radius:8px;font:10px/1.35 system-ui,-apple-system,sans-serif;color:#f2e9f5;z-index:999999;box-shadow:0 6px 18px rgba(0,0,0,.5);backdrop-filter:blur(6px);user-select:none;';
+    m.style.cssText = 'position:fixed;left:10px;top:10px;width:152px;background:rgba(10,9,14,.93);border:1px solid rgba(255,120,180,.38);border-radius:8px;font:10px/1.35 system-ui,-apple-system,sans-serif;color:#f2e9f5;z-index:2147483647;box-shadow:0 6px 18px rgba(0,0,0,.5);backdrop-filter:blur(6px);user-select:none;pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;';
     var h = document.createElement('div');
     h.id = 'kru-head';
     h.style.cssText = 'display:flex;align-items:center;gap:5px;padding:4px 6px;cursor:move;border-bottom:1px solid rgba(255,120,180,.25);border-radius:8px 8px 0 0;background:linear-gradient(180deg,rgba(255,110,170,.2),rgba(255,110,170,.04));';
@@ -601,6 +611,12 @@
   function toggle(k) { S[k] = !S[k]; paintMenu(); }
 
   function wireMenu() {
+    ['touchstart','touchend','mousedown','mouseup','click','pointerdown','pointerup','contextmenu'].forEach(function (ev) {
+      menuEl.addEventListener(ev, function (e) { if (e && e.stopPropagation) e.stopPropagation(); }, false);
+    });
+    menuEl.addEventListener('pointerdown', function () {
+      try { if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock(); } catch (err) { }
+    }, false);
     var btns = menuEl.querySelectorAll('.kru-t');
     for (var i = 0; i < btns.length; i++) {
       (function (b) { b.onclick = function () { toggle(b.dataset.k); }; })(btns[i]);
