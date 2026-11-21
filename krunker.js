@@ -504,70 +504,71 @@
     if (old) old.parentNode.removeChild(old);
     var m = document.createElement('div');
     m.id = 'kru-menu';
-    m.style.cssText = 'position:fixed;left:14px;top:14px;width:246px;background:rgba(14,12,20,.94);border:1px solid rgba(255,120,180,.45);border-radius:10px;font:12px/1.4 system-ui,-apple-system,sans-serif;color:#f2e9f5;z-index:999999;box-shadow:0 8px 26px rgba(0,0,0,.55);backdrop-filter:blur(6px);user-select:none;';
+    m.style.cssText = 'position:fixed;left:10px;top:10px;width:152px;background:rgba(10,9,14,.93);border:1px solid rgba(255,120,180,.38);border-radius:8px;font:10px/1.35 system-ui,-apple-system,sans-serif;color:#f2e9f5;z-index:999999;box-shadow:0 6px 18px rgba(0,0,0,.5);backdrop-filter:blur(6px);user-select:none;';
     var h = document.createElement('div');
     h.id = 'kru-head';
-    h.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 9px;cursor:move;border-bottom:1px solid rgba(255,120,180,.28);border-radius:10px 10px 0 0;background:linear-gradient(180deg,rgba(255,110,170,.22),rgba(255,110,170,.05));';
-    h.innerHTML = '<span style="font-weight:700;letter-spacing:.3px;">🦊 Yukakoo Mod</span><span id="kru-v" style="opacity:.55;font-size:10px;">v2</span>';
+    h.style.cssText = 'display:flex;align-items:center;gap:5px;padding:4px 6px;cursor:move;border-bottom:1px solid rgba(255,120,180,.25);border-radius:8px 8px 0 0;background:linear-gradient(180deg,rgba(255,110,170,.2),rgba(255,110,170,.04));';
+    h.innerHTML = '<span style="font-weight:700;font-size:10px;letter-spacing:.2px;">🦊 Yukakoo</span><span id="kru-v" style="opacity:.5;font-size:8px;">v2</span>';
     var minBtn = document.createElement('button');
     minBtn.id = 'kru-min';
     minBtn.textContent = '—';
     minBtn.title = 'Minimize';
-    minBtn.style.cssText = 'margin-left:auto;width:24px;height:20px;border-radius:5px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);color:#ffd9ea;font:700 13px/1 system-ui;cursor:pointer;';
+    minBtn.style.cssText = 'margin-left:auto;width:18px;height:15px;border-radius:4px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.07);color:#ffd9ea;font:700 10px/1 system-ui;cursor:pointer;padding:0;';
     h.appendChild(minBtn);
     m.appendChild(h);
 
     var b = document.createElement('div');
     b.id = 'kru-body';
-    b.style.cssText = 'padding:8px 9px 10px;';
+    b.style.cssText = 'padding:5px 6px 6px;';
     var items = [
-      ['aimbot', 'Aimbot'], ['autofire', 'Auto Fire'], ['teamCheck', 'Team Check'],
-      ['espBox', 'ESP Box'], ['espTracer', 'ESP Tracer'], ['chams', 'Chams'],
-      ['wireframe', 'Wireframe'], ['god', 'Godmode'], ['bhop', 'Auto Bhop'],
-      ['autorun', 'Auto Run'], ['third', 'Third Person']
+      ['aimbot', 'Aim'], ['autofire', 'Fire'], ['teamCheck', 'Team'],
+      ['espBox', 'Box'], ['espTracer', 'Line'], ['chams', 'Cham'],
+      ['wireframe', 'Wire'], ['god', 'God'], ['bhop', 'Bhop'],
+      ['autorun', 'Run'], ['third', '3rd']
     ];
     var grid = document.createElement('div');
-    grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:5px;';
+    grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;';
     items.forEach(function (it) {
       var btn = document.createElement('button');
       btn.className = 'kru-t';
       btn.dataset.k = it[0];
       btn.textContent = it[1];
-      btn.style.cssText = 'padding:6px 4px;border-radius:6px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#e8dcea;font:600 11px system-ui;cursor:pointer;text-align:left;padding-left:7px;transition:.12s;';
+      btn.title = it[1];
+      btn.style.cssText = 'padding:4px 2px;border-radius:4px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#e8dcea;font:600 9px system-ui;cursor:pointer;text-align:center;transition:.12s;';
       grid.appendChild(btn);
     });
     b.appendChild(grid);
 
     var row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:8px;';
-    row.innerHTML = '<label style="flex:1;font-size:11px;opacity:.8;">Aim FOV</label>';
+    row.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:5px;';
+    row.innerHTML = '<label style="flex:1;font-size:9px;opacity:.75;">AimFov</label>';
     var fovIn = document.createElement('input');
     fovIn.type = 'range'; fovIn.min = 10; fovIn.max = 160; fovIn.step = 5; fovIn.value = S.aimFov;
-    fovIn.style.cssText = 'flex:1;accent-color:#ff6eaa;';
+    fovIn.style.cssText = 'flex:1;accent-color:#ff6eaa;height:12px;';
     var fovVal = document.createElement('span');
-    fovVal.style.cssText = 'width:26px;text-align:right;font-size:11px;';
+    fovVal.style.cssText = 'width:20px;text-align:right;font-size:9px;';
     fovVal.textContent = S.aimFov;
     fovIn.oninput = function () { S.aimFov = +fovIn.value; fovVal.textContent = fovIn.value; };
     row.appendChild(fovIn); row.appendChild(fovVal);
     b.appendChild(row);
 
     var row2 = document.createElement('div');
-    row2.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:5px;';
-    row2.innerHTML = '<label style="flex:1;font-size:11px;opacity:.8;">Screen FOV</label>';
+    row2.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:4px;';
+    row2.innerHTML = '<label style="flex:1;font-size:9px;opacity:.75;">ScreenFOV</label>';
     var fovBtn = document.createElement('button');
     fovBtn.id = 'kru-fovcycle';
-    fovBtn.style.cssText = 'min-width:56px;padding:4px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#ffd9ea;font:600 11px system-ui;cursor:pointer;';
+    fovBtn.style.cssText = 'min-width:46px;padding:2px 4px;border-radius:4px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#ffd9ea;font:600 9px system-ui;cursor:pointer;';
     row2.appendChild(fovBtn);
     b.appendChild(row2);
 
     var st = document.createElement('div');
     st.id = 'kru-status';
-    st.style.cssText = 'margin-top:8px;font-size:10px;opacity:.6;word-break:break-all;line-height:1.35;';
+    st.style.cssText = 'margin-top:5px;font-size:8px;opacity:.55;word-break:break-all;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
     b.appendChild(st);
 
     var hint = document.createElement('div');
-    hint.style.cssText = 'margin-top:5px;font-size:10px;opacity:.45;';
-    hint.textContent = '1-9 toggle · 0 screen FOV · Insert minimize';
+    hint.style.cssText = 'margin-top:3px;font-size:8px;opacity:.4;';
+    hint.textContent = '1-9 · 0 fov · Ins minimize';
     b.appendChild(hint);
 
     m.appendChild(b);
@@ -590,7 +591,7 @@
     }
     var f = document.getElementById('kru-fovcycle');
     if (f) f.textContent = FOVS[S.fovIdx] === 0 ? 'Default' : FOVS[S.fovIdx] + '°';
-    if (menuEl) { menuEl.style.width = S.min ? 'auto' : '246px'; menuEl.style.padding = '0'; menuEl.style.minWidth = S.min ? '0' : ''; }
+    if (menuEl) { menuEl.style.width = S.min ? 'auto' : '152px'; menuEl.style.padding = '0'; menuEl.style.minWidth = S.min ? '0' : ''; }
     if (bodyEl) bodyEl.style.display = S.min ? 'none' : 'block';
     var mb = document.getElementById('kru-min');
     if (mb) mb.textContent = S.min ? '▢' : '—';
