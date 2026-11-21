@@ -1,501 +1,665 @@
 (function () {
   'use strict';
-  if (window.__KRU) { window.__KRU.uiToggle(); return; }
+  if (window.__KRU) return;
+  var K = { v: 2 };
+  window.__KRU = K;
 
-  var S = { scene: null, me: null, cam: null, foes: [], camBase: null, baseFov: 0, fireAt: 0, upAt: 0 };
+  var S = {
+    aimbot: true, autofire: true, espBox: true, espTracer: false,
+    chams: false, wireframe: false, god: true, bhop: false,
+    autorun: false, teamCheck: true, third: false,
+    fovIdx: 0, aimFov: 45, aimOffset: 0, menuOpen: true, min: false
+  };
+  var FOVS = [0, 90, 110, 130];
+  var IDX = { frame: 0, delta: 1, xdir: 2, ydir: 3, moveDir: 4, shoot: 5, scope: 6, jump: 7, reload: 8, crouch: 9, weaponScroll: 10, weaponSwap: 11, moveLock: 12 };
 
-  var cfg = {
-    aimbot: false, autofire: false,
-    esp: false, espLine: false,
-    chams: false, wire: false,
-    godmode: false, bhop: false, autorun: false,
-    fov: 0, third: false, menu: true
+  var C = {
+    game: null, controls: null, renderer: null, me: null,
+    overlay: null, ctx: null, scale: null, spaceDown: false,
+    by: '', ready: false, fovApplied: -1, baseCam: null, thirdOn: false
   };
 
-  var FOVS = [0, 90, 110, 130];
-
-  function clone3(v) { return v.clone(); }
-
-  function wpos(o, x, y, z) {
-    var v = S.cam.position.clone();
-    v.set(x, y, z);
-    o.localToWorld(v);
-    return v;
+  function isFn(v) { return typeof v === 'function'; }
+  function safe(fn) { try { fn(); } catch (e) { } }
+  function plist() {
+    var g = C.game;
+    if (!g || !g.players) return null;
+    var l = g.players.list;
+    return (l && typeof l.length === 'number') ? l : null;
+  }
+  function listPlayers() {
+    var l = plist();
+    if (!l) return [];
+    var out = [];
+    for (var i = 0; i < l.length; i++) if (l[i]) out.push(l[i]);
+    return out;
   }
 
-  function camPos() { return S.cam.getWorldPosition(S.cam.position.clone()); }
-
-  function aDiff(a, b) {
-    var d = (b - a) % (Math.PI * 2);
-    if (d > Math.PI) d -= Math.PI * 2;
-    if (d < -Math.PI) d += Math.PI * 2;
-    return d;
+  function defineProto(name, onSet) {
+    safe(function () {
+      var key = '__kru_' + name;
+      Object.defineProperty(Object.prototype, name, {
+        configurable: true,
+        enumerable: false,
+        get: function () { return this[key]; },
+        set: function (v) {
+          safe(function () { Object.defineProperty(this, key, { value: v, writable: true, configurable: true, enumerable: false }); }.bind(this));
+          safe(function () { onSet.call(this, v); }.bind(this));
+        }
+      });
+    });
   }
 
-  function probe(o, keys) {
-    if (!o) return null;
-    var i, k;
-    for (i = 0; i < keys.length; i++) {
-      k = keys[i];
-      if (o[k] !== undefined && o[k] !== null && typeof o[k] !== 'object') return o[k];
+  function hookRenderOn(obj) {
+    if (!obj || obj.__kruRenderHooked) return;
+    var existing;
+    safe(function () { existing = obj.render; });
+    if (isFn(existing) && existing.__kru) return;
+    var cur;
+    function wrap(fn) {
+      if (!isFn(fn) || fn.__kru) return fn;
+      var wrapped = function () {
+        var a = arguments;
+        safe(function () { adopt(a[0], a[1], a[2], a[3], a[4]); });
+        var r = fn.apply(this, arguments);
+        safe(frame);
+        return r;
+      };
+      wrapped.__kru = true;
+      return wrapped;
     }
-    if (o.userData) {
-      for (i = 0; i < keys.length; i++) {
-        k = keys[i];
-        if (o.userData[k] !== undefined && o.userData[k] !== null && typeof o.userData[k] !== 'object') return o.userData[k];
+    safe(function () {
+      Object.defineProperty(obj, 'render', {
+        configurable: true,
+        enumerable: false,
+        get: function () { return cur; },
+        set: function (fn) { cur = wrap(fn); }
+      });
+      obj.__kruRenderHooked = true;
+      if (isFn(existing)) cur = wrap(existing);
+    });
+  }
+
+  function adopt(scale, game, controls, renderer, me) {
+    if (game && game.players && typeof game.players.list !== 'undefined') { C.game = game; C.by = 'render'; }
+    if (controls && (controls.keys || controls.binds)) C.controls = controls;
+    if (renderer && renderer.camera) C.renderer = renderer;
+    if (me) C.me = me;
+    if (scale) C.scale = scale;
+    validate();
+  }
+
+  function validate() {
+    if (C.game && !(C.game.players && typeof C.game.players.list !== 'undefined')) C.game = null;
+    if (!C.game && C.gameCand && C.gameCand.players && typeof C.gameCand.players.list !== 'undefined') C.game = C.gameCand;
+    if (!C.me && C.game) {
+      var l = plist();
+      if (l) for (var i = 0; i < l.length; i++) { if (l[i] && l[i].isYou) { C.me = l[i]; break; } }
+    }
+    if (!C.renderer && C.game && C.game.renderer && C.game.renderer.camera) C.renderer = C.game.renderer;
+    if (!C.controls && C.game && C.game.controls && (C.game.controls.keys || C.game.controls.binds)) C.controls = C.game.controls;
+    if (!C.controls && C.controlsCand && (C.controlsCand.keys || C.controlsCand.binds)) C.controls = C.controlsCand;
+    if (!C.renderer && C.rendererCand && C.rendererCand.camera) C.renderer = C.rendererCand;
+    if (C.game && C.me && C.renderer && !C.ready) { C.ready = true; ensureProcHook(); refreshStatus(); }
+    if (C.game && !C.ready) refreshStatus();
+  }
+
+  function installHooks() {
+    defineProto('canvas', function (v) {
+      if (v && v.id === 'game-overlay') {
+        C.overlay = this;
+        safe(function () { C.ctx = v.getContext('2d'); });
+        hookRenderOn(this);
       }
-    }
-    if (o.children && o.children[0]) return probe(o.children[0], keys);
+    });
+    defineProto('players', function (v) {
+      if (v && typeof v.list !== 'undefined' && Array.isArray(v.list) && v.list.length >= 0) C.gameCand = this;
+      validate();
+    });
+    defineProto('renderer', function (v) { if (v && v.camera) { C.rendererCand = v; validate(); } });
+    defineProto('controls', function (v) { if (v && (v.keys || v.binds)) { C.controlsCand = v; validate(); } });
+    safe(function () {
+      var g = document.getElementById('game-overlay');
+      if (g) { C.overlay = C.overlay || {}; C.ctx = C.ctx || g.getContext('2d'); }
+    });
+  }
+
+  function ensureProcHook() {
+    var me = C.me;
+    if (!me || !isFn(me.procInputs) || me.procInputs.__kru) return;
+    var orig = me.procInputs;
+    var wrapped = function (pk) {
+      safe(function () { onPacket(pk); });
+      return orig.apply(this, arguments);
+    };
+    wrapped.__kru = true;
+    safe(function () { me.procInputs = wrapped; });
+  }
+
+  function effH(p) {
+    var h = (typeof p.height === 'number' && p.height > 0) ? p.height : 11;
+    return h - (p.crouchVal || 0) * 3;
+  }
+  function halfW() { return 2; }
+
+  function cam() {
+    if (C.renderer && C.renderer.camera) return C.renderer.camera;
+    if (C.renderer && C.renderer.fpsCamera) return C.renderer.fpsCamera;
     return null;
   }
-
-  var origPush = Array.prototype.push;
-  Array.prototype.push = function () {
-    try {
-      var o = arguments[0];
-      if (o && o.parent && o.parent.type === 'Scene' && o.parent.name === 'Main') S.scene = o.parent;
-    } catch (e) {}
-    return origPush.apply(this, arguments);
-  };
-
-  function scan() {
-    var s = S.scene;
-    if (!s || !s.children) { S.me = null; S.cam = null; S.foes = []; return; }
-    var me = null, cam = null, foes = [], i, c, k;
-    for (i = 0; i < s.children.length; i++) {
-      c = s.children[i];
-      if (!c || c.type !== 'Object3D') continue;
-      k = c.children && c.children[0] && c.children[0].children && c.children[0].children[0];
-      if (k && k.type === 'PerspectiveCamera') { me = c; cam = k; }
-      else if (c.children && c.children[0]) foes.push(c);
-    }
-    S.me = me; S.cam = cam; S.foes = foes;
-    if (cam && !S.baseFov) S.baseFov = cam.fov || 75;
-    if (me && !S.camBase) S.camBase = cam.position.clone();
+  function vpSize() {
+    if (C.overlay && C.overlay.canvas) return { w: C.overlay.canvas.width, h: C.overlay.canvas.height };
+    return { w: window.innerWidth || 1280, h: window.innerHeight || 720 };
   }
 
-  function pickTarget() {
-    if (!S.me || !S.cam) return null;
-    var cpos = camPos();
-    var fwd = S.cam.getWorldDirection(S.cam.position.clone());
-    var limit = 45 * Math.PI / 180;
-    var best = null, bestDist = 1e9;
-    for (var i = 0; i < S.foes.length; i++) {
-      var f = S.foes[i];
-      if (f === S.me || !f.children || !f.children[0]) continue;
-      var node = f.children[0].children && f.children[0].children[0] ? f.children[0].children[0] : f;
-      var head;
-      try { head = wpos(node, 0, 2, 0); } catch (e) { continue; }
-      var to = head.clone().sub(cpos);
-      var dist = to.length();
-      if (dist < 2 || dist > 300) continue;
-      to.normalize();
-      var ang = Math.acos(Math.max(-1, Math.min(1, fwd.dot(to))));
-      if (ang < limit && dist < bestDist) { bestDist = dist; best = f; }
+  function w2s(x, y, z) {
+    var c = cam();
+    if (!c || !c.matrixWorldInverse || !c.projectionMatrix) return null;
+    var vm = c.matrixWorldInverse.elements, pm = c.projectionMatrix.elements;
+    if (!vm || !pm) return null;
+    var vx = vm[0] * x + vm[4] * y + vm[8] * z + vm[12];
+    var vy = vm[1] * x + vm[5] * y + vm[9] * z + vm[13];
+    var vz = vm[2] * x + vm[6] * y + vm[10] * z + vm[14];
+    var cx = pm[0] * vx + pm[4] * vy + pm[8] * vz + pm[12];
+    var cy = pm[1] * vx + pm[5] * vy + pm[9] * vz + pm[13];
+    var cw = pm[3] * vx + pm[7] * vy + pm[11] * vz + pm[15];
+    if (!cw) return null;
+    var nx = cx / cw, ny = cy / cw;
+    if (cw <= 0 || nx < -1.05 || nx > 1.05 || ny < -1.05 || ny > 1.05) return null;
+    var s = vpSize();
+    return { x: (nx + 1) / 2 * s.w, y: (1 - ny) / 2 * s.h };
+  }
+
+  function isTeammate(p) {
+    var me = C.me;
+    if (!me || !p) return false;
+    return !!(me.team && p.team === me.team);
+  }
+  function validEnemy(p) {
+    if (!p || p === C.me || p.isYou) return false;
+    if (p.active === false) return false;
+    if (typeof p.health === 'number' && p.health <= 0) return false;
+    if (p.dead === true) return false;
+    if (S.teamCheck && isTeammate(p)) return false;
+    return true;
+  }
+
+  function pickTarget(needCenter) {
+    var list = plist();
+    if (!list) return null;
+    var me = C.me;
+    if (!me) return null;
+    var s = vpSize(), cx = s.w / 2, cy = s.h / 2;
+    var r = (S.aimFov || 45);
+    var r2 = r * r;
+    var inner = needCenter ? r2 * 0.22 : r2;
+    var best = null, bestD = Infinity;
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (!validEnemy(p)) continue;
+      var mid = p.y + effH(p) * 0.55;
+      var sp = w2s(p.x, mid, p.z);
+      if (!sp) continue;
+      var d = (sp.x - cx) * (sp.x - cx) + (sp.y - cy) * (sp.y - cy);
+      if (d > r2) continue;
+      if (needCenter && d > inner) continue;
+      if (d < bestD) { bestD = d; best = p; }
     }
     return best;
   }
 
-  function applyAim(t) {
-    var node = t.children[0].children && t.children[0].children[0] ? t.children[0].children[0] : t;
-    var goal = wpos(node, 0, 1.5, 0);
-    var o = new (S.me.constructor)();
-    o.rotation.order = 'YXZ';
-    o.position.copy(S.me.position);
-    o.lookAt(goal);
-    var camNode = S.me.children[0];
-    var sm = 0.4;
-    var goalX = -o.rotation.x;
-    var goalY = o.rotation.y + Math.PI;
-    camNode.rotation.x = camNode.rotation.x + (goalX - camNode.rotation.x) * sm;
-    S.me.rotation.y = S.me.rotation.y + aDiff(S.me.rotation.y, goalY) * sm;
-  }
-
-  function fire(on) {
-    var cv = document.querySelector('canvas');
-    if (!cv) return;
-    var type = on ? 'mousedown' : 'mouseup';
-    var ev;
-    try {
-      ev = new MouseEvent(type, { button: 0, buttons: on ? 1 : 0, bubbles: true, cancelable: true });
-    } catch (e) {
-      ev = document.createEvent('MouseEvents');
-      ev.initMouseEvent(type, true, true, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
+  function onPacket(pk) {
+    if (!pk || typeof pk.length !== 'number') return;
+    var me = C.me;
+    if (!me) return;
+    var target = null;
+    if (S.aimbot || S.autofire) target = pickTarget(false);
+    if (S.aimbot && target) {
+      var predX = target.x, predZ = target.z;
+      var targetY = target.y - (target.crouchVal || 0) * 3 + (me.crouchVal || 0) * 3 + (S.aimOffset || 0);
+      var yDire = Math.atan2(me.x - predX, me.z - predZ);
+      var dx = predX - me.x, dy = targetY - me.y, dz = predZ - me.z;
+      var dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+      var asin = Math.asin(Math.max(-1, Math.min(1, dy / dist)));
+      var xDire = asin - 0.3 * (me.recoilAnimY || 0);
+      pk[IDX.xdir] = xDire * 1000;
+      pk[IDX.ydir] = yDire * 1000;
+      if (S.third) safe(function () { lookDir(xDire, yDire); });
     }
-    cv.dispatchEvent(ev);
-    if (typeof PointerEvent !== 'undefined') {
-      try {
-        cv.dispatchEvent(new PointerEvent(type, { button: 0, buttons: on ? 1 : 0, pointerId: 1, isPrimary: true, bubbles: true, cancelable: true }));
-      } catch (e2) {}
+    if (S.autofire) {
+      var t = target || pickTarget(true);
+      if (t && (typeof me.reloadTimer !== 'number' || me.reloadTimer === 0)) pk[IDX.shoot] = 1;
+      if (!t && !C.ready) synthFire();
     }
   }
 
-  function fireCycle() {
+  function lookDir(xDire, yDire) {
+    var c = C.controls;
+    if (!c) return;
+    if (c.object && c.object.rotation) c.object.rotation.y = yDire;
+    var pitch = findPitch(c);
+    if (pitch) pitch.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, xDire));
+    if (C.renderer && C.renderer.camera && C.renderer.camera.updateProjectionMatrix) C.renderer.camera.updateProjectionMatrix();
+  }
+
+  function findPitch(c) {
+    if (c.__kruPitch) return c.__kruPitch;
+    var keys;
+    safe(function () { keys = Object.keys(c); });
+    if (!keys) return null;
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      var v = null;
+      safe(function () { v = c[k]; });
+      if (v && v !== c && v !== c.object && v.rotation &&
+        typeof v.rotation.x === 'number' && typeof v.rotation.y === 'number' &&
+        typeof v.rotation.z === 'number') {
+        safe(function () { c.__kruPitch = v; });
+        return v;
+      }
+    }
+    return null;
+  }
+
+  var lastSynth = 0;
+  function synthFire() {
     var now = Date.now();
-    if (now >= S.fireAt) {
-      fire(true);
-      S.fireAt = now + 140;
-      S.upAt = now + 50;
-    }
-    if (S.upAt && now >= S.upAt) {
-      fire(false);
-      S.upAt = 0;
-    }
-  }
-
-  var espCv = null, espCtx = null;
-
-  function espCanvas() {
-    if (espCv) return espCv;
-    espCv = document.createElement('canvas');
-    espCv.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;pointer-events:none;z-index:999998;';
-    (document.body || document.documentElement).appendChild(espCv);
-    espCtx = espCv.getContext('2d');
-    return espCv;
-  }
-
-  function drawEsp() {
-    var cv = espCanvas();
-    var dpr = window.devicePixelRatio || 1;
-    var W = window.innerWidth, H = window.innerHeight;
-    if (cv.width !== Math.floor(W * dpr)) { cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr); }
-    var g = espCtx;
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, W, H);
-    if (!S.cam) return;
-    var cpos = camPos();
-    var lines = [];
-    for (var i = 0; i < S.foes.length; i++) {
-      var f = S.foes[i];
-      if (f === S.me) continue;
-      var feet, head;
-      try {
-        feet = wpos(f, 0, 0, 0);
-        head = wpos(f, 0, 11, 0);
-      } catch (e) { continue; }
-      var pf = feet.project(S.cam);
-      var ph = head.project(S.cam);
-      if (pf.z >= 1 || ph.z >= 1) continue;
-      var x1 = (pf.x * 0.5 + 0.5) * W;
-      var y1 = (-pf.y * 0.5 + 0.5) * H;
-      var x2 = (ph.x * 0.5 + 0.5) * W;
-      var y2 = (-ph.y * 0.5 + 0.5) * H;
-      var bh = y1 - y2;
-      if (bh < 6 || bh > H * 2) continue;
-      var bw = bh * 0.45;
-      var cx = (x1 + x2) / 2;
-      var dist = Math.round(feet.distanceTo(cpos));
-      g.strokeStyle = '#ff3b3b';
-      g.lineWidth = 2;
-      g.strokeRect(cx - bw / 2, y2, bw, bh);
-      g.font = '12px monospace';
-      g.fillStyle = '#ffffff';
-      g.textAlign = 'center';
-      var name = f.name || probe(f, ['username', 'playerName', 'nick']) || 'Enemy';
-      g.fillText(String(name), cx, y2 - 16);
-      g.fillStyle = '#ffd166';
-      g.fillText(dist + 'm', cx, y2 - 3);
-      var hp = probe(f, ['health', 'hp']);
-      var mx = probe(f, ['maxHealth', 'maxHp', 'hpMax']);
-      if (typeof hp === 'number') {
-        var max = typeof mx === 'number' && mx > 0 ? mx : 100;
-        var frac = Math.max(0, Math.min(1, hp / max));
-        g.fillStyle = '#222';
-        g.fillRect(cx - bw / 2, y1 + 4, bw, 5);
-        g.fillStyle = frac > 0.5 ? '#4caf50' : frac > 0.25 ? '#ff9800' : '#f44336';
-        g.fillRect(cx - bw / 2, y1 + 4, bw * frac, 5);
-      }
-      if (cfg.espLine) lines.push([cx, y1]);
-    }
-    if (cfg.espLine) {
-      g.strokeStyle = 'rgba(255,59,59,0.6)';
-      g.lineWidth = 1;
-      g.beginPath();
-      for (var j = 0; j < lines.length; j++) {
-        g.moveTo(W / 2, H);
-        g.lineTo(lines[j][0], lines[j][1]);
-      }
-      g.stroke();
-    }
-  }
-
-  function clearEsp() {
-    if (espCtx) espCtx.clearRect(0, 0, espCv.width, espCv.height);
-  }
-
-  function eachMat(root, fn) {
-    if (!root || !root.traverse) return;
-    root.traverse(function (o) {
-      if (!o.material) return;
-      var ms = Array.isArray(o.material) ? o.material : [o.material];
-      for (var i = 0; i < ms.length; i++) fn(ms[i]);
+    if (now - lastSynth < 90) return;
+    lastSynth = now;
+    safe(function () {
+      var el = document.getElementById('mainCanvas') || document.querySelector('canvas') || document.body;
+      var opt = { bubbles: true, cancelable: true, button: 0, clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 };
+      el.dispatchEvent(new MouseEvent('mousedown', opt));
+      setTimeout(function () { safe(function () { el.dispatchEvent(new MouseEvent('mouseup', opt)); }); }, 30);
+      el.dispatchEvent(new PointerEvent('pointerdown', opt));
+      setTimeout(function () { safe(function () { el.dispatchEvent(new PointerEvent('pointerup', opt)); }); }, 30);
     });
   }
 
-  function applyMats(on) {
-    for (var i = 0; i < S.foes.length; i++) {
-      (function (f) {
-        eachMat(f, function (m) {
-          if (on) {
-            if (!m.__kru) m.__kru = { dt: m.depthTest, dw: m.depthWrite, tr: m.transparent, op: m.opacity, wf: m.wireframe, col: m.color ? m.color.getHex() : null };
-            if (cfg.chams) {
-              m.depthTest = false;
-              m.depthWrite = false;
-              m.transparent = true;
-              m.opacity = 0.7;
-              if (m.color) m.color.setHex(0xff2b2b);
-            } else if (m.__kru) {
-              m.depthTest = m.__kru.dt;
-              m.depthWrite = m.__kru.dw;
-              m.transparent = m.__kru.tr;
-              m.opacity = m.__kru.op;
-              if (m.color && m.__kru.col !== null) m.color.setHex(m.__kru.col);
-            }
-            m.wireframe = cfg.wire;
-          } else if (m.__kru) {
-            m.depthTest = m.__kru.dt;
-            m.depthWrite = m.__kru.dw;
-            m.transparent = m.__kru.tr;
-            m.opacity = m.__kru.op;
-            m.wireframe = m.__kru.wf;
-            if (m.color && m.__kru.col !== null) m.color.setHex(m.__kru.col);
-            m.__kru = null;
-          }
-        });
-      })(S.foes[i]);
+  function frame() {
+    if (!C.ready) validate();
+    var me = C.me;
+    ensureProcHook();
+    if (S.bhop && C.controls && C.controls.binds && C.controls.binds.jump && C.controls.keys) {
+      safe(function () {
+        var k = C.controls.binds.jump.val;
+        if (C.spaceDown || C.controls.keys[k]) {
+          C.controls.keys[k] = C.controls.keys[k] ? 0 : 1;
+          if (C.controls.keys[k]) C.controls.didPressed[k] = 1;
+        }
+      });
     }
-  }
-
-  function restoreMats() {
-    for (var i = 0; i < S.foes.length; i++) {
-      (function (f) {
-        eachMat(f, function (m) {
-          if (!m.__kru) return;
-          m.depthTest = m.__kru.dt;
-          m.depthWrite = m.__kru.dw;
-          m.transparent = m.__kru.tr;
-          m.opacity = m.__kru.op;
-          m.wireframe = m.__kru.wf;
-          if (m.color && m.__kru.col !== null) m.color.setHex(m.__kru.col);
-          m.__kru = null;
-        });
-      })(S.foes[i]);
+    if (S.autorun && C.controls && C.controls.binds && C.controls.binds.move && C.controls.keys) {
+      safe(function () {
+        var f = C.controls.binds.move[0];
+        if (f && typeof f.val === 'number') { C.controls.keys[f.val] = 1; }
+      });
     }
-  }
-
-  function godTick() {
-    if (!cfg.godmode) return;
-    var p = window.player;
-    if (p) {
-      var mx = probe(p, ['maxHealth', 'maxHp', 'hpMax']);
-      if (typeof p.health === 'number' && typeof mx === 'number') p.health = mx;
-      else if (typeof p.hp === 'number' && typeof mx === 'number') p.hp = mx;
+    if (S.god && me) {
+      safe(function () {
+        if (typeof me.maxHealth === 'number' && me.maxHealth > 0) {
+          if (typeof me.__kruMax !== 'number' || me.maxHealth > me.__kruMax) me.__kruMax = me.maxHealth;
+        } else if (typeof me.health === 'number' && me.health > 0 && (typeof me.__kruMax !== 'number' || me.health > me.__kruMax)) {
+          me.__kruMax = me.health;
+        }
+        if (typeof me.__kruMax === 'number' && typeof me.health === 'number' && me.health < me.__kruMax) me.health = me.__kruMax;
+      });
     }
-    var el = document.querySelector('#hpVal, #hp, .hpVal, [id*="hpVal"], [class*="hpVal"]');
-    if (el) {
-      if (el.textContent && /^\d+$/.test(el.textContent.trim()) && el.textContent.trim() !== '100') el.textContent = '100';
-      if (el.style) {
-        if (el.style.width && el.style.width !== '100%') el.style.width = '100%';
-      }
-    }
+    safe(fovTick);
+    safe(thirdTick);
+    safe(chamsTick);
+    safe(wireTick);
+    safe(espTick);
   }
 
   function fovTick() {
-    if (!S.cam) return;
-    var want = cfg.fov ? FOVS[cfg.fov] : (S.baseFov || 75);
-    if (S.cam.fov !== want) {
-      S.cam.fov = want;
-      if (S.cam.updateProjectionMatrix) S.cam.updateProjectionMatrix();
+    var c = cam();
+    if (!c || typeof c.fov !== 'number') return;
+    var want = FOVS[S.fovIdx] || 0;
+    if (want === 0) {
+      if (C.fovApplied > 0 && typeof C.baseFov === 'number' && c.fov !== C.baseFov) {
+        c.fov = C.baseFov;
+        if (c.updateProjectionMatrix) c.updateProjectionMatrix();
+      }
+      C.fovApplied = -1;
+      return;
+    }
+    var adsFree = !C.me || typeof C.me.aimVal !== 'number' || C.me.aimVal >= 1;
+    if (!adsFree) return;
+    if (typeof C.baseFov !== 'number') C.baseFov = c.fov;
+    if (C.fovApplied === want && c.fov === want) return;
+    if (c.updateProjectionMatrix) {
+      c.fov = want;
+      c.updateProjectionMatrix();
+      C.fovApplied = want;
     }
   }
 
   function thirdTick() {
-    if (!S.cam || !S.camBase) return;
-    if (cfg.third) {
-      S.cam.position.copy(S.camBase);
-      S.cam.position.z += 16;
-      S.cam.position.y += 4;
-    } else if (S.cam.position.z !== S.camBase.z || S.cam.position.y !== S.camBase.y) {
-      S.cam.position.copy(S.camBase);
-    }
-  }
-
-  function kbd(type, code, kc) {
-    var ev;
-    try {
-      ev = new KeyboardEvent(type, { code: code, bubbles: true, cancelable: true });
-    } catch (e) {
-      ev = document.createEvent('Event');
-      ev.initEvent(type, true, true);
-      ev.code = code;
-    }
-    try {
-      Object.defineProperty(ev, 'keyCode', { value: kc });
-      Object.defineProperty(ev, 'which', { value: kc });
-    } catch (e2) {}
-    (document.activeElement && document.activeElement !== document.body ? document.body : document).dispatchEvent(ev);
-  }
-
-  function typing() {
-    var a = document.activeElement;
-    return a && a !== document.body && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable);
-  }
-
-  setInterval(function () {
-    if (typing()) return;
-    if (cfg.bhop) {
-      kbd('keydown', 'Space', 32);
-      setTimeout(function () { kbd('keyup', 'Space', 32); }, 55);
-    }
-    if (cfg.autorun) kbd('keydown', 'KeyW', 87);
-  }, 90);
-
-  var FEATURES = [
-    ['aimbot', 'Aimbot'],
-    ['autofire', 'Auto Fire'],
-    ['esp', 'ESP Box'],
-    ['espLine', 'ESP Tracer'],
-    ['chams', 'Chams'],
-    ['wire', 'Wireframe'],
-    ['godmode', 'Godmode'],
-    ['bhop', 'Auto Bhop'],
-    ['autorun', 'Auto Run'],
-    ['fov', 'FOV Cycle'],
-    ['third', 'Third Person']
-  ];
-
-  var menuEl = null, btns = {};
-
-  function toast(msg) {
-    var t = document.getElementById('kru-toast');
-    if (!t) {
-      t = document.createElement('div');
-      t.id = 'kru-toast';
-      t.style.cssText = 'position:fixed;left:50%;bottom:14%;transform:translateX(-50%);background:rgba(0,0,0,.85);color:#7CFC9B;font:600 14px monospace;padding:8px 16px;border-radius:6px;z-index:1000001;pointer-events:none;border:1px solid #2b7';
-      document.body.appendChild(t);
-    }
-    t.textContent = msg;
-    t.style.opacity = '1';
-    clearTimeout(t.__h);
-    t.__h = setTimeout(function () { t.style.opacity = '0'; }, 1400);
-  }
-
-  function fmt(k) {
-    if (k === 'fov') return ['OFF', '90', '110', '130'][cfg.fov];
-    return cfg[k] ? 'ON' : 'OFF';
-  }
-
-  function refresh() {
-    for (var k in btns) {
-      if (!btns.hasOwnProperty(k)) continue;
-      var on = k === 'fov' ? cfg.fov > 0 : cfg[k];
-      btns[k].textContent = btns[k].__label + '  [' + fmt(k) + ']';
-      btns[k].style.color = on ? '#7CFC9B' : '#888';
-      btns[k].style.borderColor = on ? '#2b7' : '#444';
-    }
-  }
-
-  function toggle(k) {
-    if (k === 'fov') cfg.fov = (cfg.fov + 1) % FOVS.length;
-    else cfg[k] = !cfg[k];
-    if (k === 'esp' && !cfg.esp) clearEsp();
-    if ((k === 'chams' || k === 'wire') && !cfg.chams && !cfg.wire) restoreMats();
-    if (k === 'autorun' && !cfg.autorun) kbd('keyup', 'KeyW', 87);
-    refresh();
-    toast(document.getElementById('kru-title').textContent.split(' ')[0] + ' ' + k + ' = ' + fmt(k));
-  }
-
-  function buildMenu() {
-    menuEl = document.createElement('div');
-    menuEl.id = 'kru-menu';
-    menuEl.style.cssText = 'position:fixed;top:8px;left:8px;z-index:1000000;background:rgba(8,12,10,.92);border:1px solid #2b7;border-radius:8px;padding:8px;font:12px monospace;color:#ccc;user-select:none;min-width:170px;';
-    var title = document.createElement('div');
-    title.id = 'kru-title';
-    title.textContent = 'KRU CHEAT v1';
-    title.style.cssText = 'color:#7CFC9B;font-weight:700;font-size:13px;cursor:move;padding:2px 4px 6px;letter-spacing:1px;';
-    menuEl.appendChild(title);
-    for (var i = 0; i < FEATURES.length; i++) {
-      (function (pair) {
-        var b = document.createElement('div');
-        b.__label = pair[1];
-        b.textContent = pair[1] + '  [OFF]';
-        b.style.cssText = 'padding:6px 8px;margin:3px 0;border:1px solid #444;border-radius:5px;cursor:pointer;text-align:left;background:#111a16;font-size:12px;';
-        b.addEventListener('click', function () { toggle(pair[0]); });
-        b.addEventListener('touchstart', function (e) { e.preventDefault(); toggle(pair[0]); }, { passive: false });
-        btns[pair[0]] = b;
-        menuEl.appendChild(b);
-      })(FEATURES[i]);
-    }
-    var hide = document.createElement('div');
-    hide.textContent = '[ Sembunyikan ]';
-    hide.style.cssText = 'padding:5px;text-align:center;color:#666;cursor:pointer;margin-top:4px;border-top:1px solid #233;';
-    hide.addEventListener('click', function () { menuEl.style.display = 'none'; cfg.menu = false; toast('menu tersembunyi — tekan Insert / klik KRU untuk buka'); });
-    menuEl.appendChild(hide);
-    document.body.appendChild(menuEl);
-
-    var drag = false, ox = 0, oy = 0;
-    function down(x, y) { drag = true; var r = menuEl.getBoundingClientRect(); ox = x - r.left; oy = y - r.top; }
-    function move(x, y) {
-      if (!drag) return;
-      menuEl.style.left = Math.max(0, Math.min(window.innerWidth - 100, x - ox)) + 'px';
-      menuEl.style.top = Math.max(0, Math.min(window.innerHeight - 60, y - oy)) + 'px';
-      menuEl.style.right = 'auto';
-    }
-    title.addEventListener('mousedown', function (e) { down(e.clientX, e.clientY); e.preventDefault(); });
-    title.addEventListener('touchstart', function (e) { down(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
-    window.addEventListener('mousemove', function (e) { move(e.clientX, e.clientY); });
-    window.addEventListener('touchmove', function (e) { if (drag) { move(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); } }, { passive: false });
-    window.addEventListener('mouseup', function () { drag = false; });
-    window.addEventListener('touchend', function () { drag = false; });
-    refresh();
-  }
-
-  window.addEventListener('keydown', function (e) {
-    if (typing()) return;
-    if (e.code === 'Insert') {
-      if (!menuEl) buildMenu();
-      cfg.menu = !cfg.menu;
-      menuEl.style.display = cfg.menu ? '' : 'none';
-      e.preventDefault();
+    var c = cam();
+    if (!c || !c.position) return;
+    if (!S.third) {
+      if (C.thirdOn && C.baseCam) { c.position.x = C.baseCam.x; c.position.y = C.baseCam.y; c.position.z = C.baseCam.z; }
+      C.thirdOn = false;
       return;
     }
-    var n = parseInt(e.key, 10);
-    if (n >= 1 && n <= 9 && FEATURES[n - 1]) toggle(FEATURES[n - 1][0]);
-  });
-
-  function loop() {
-    requestAnimationFrame(loop);
-    if (!S.scene) return;
-    scan();
-    if (!S.me || !S.cam) return;
-    var t = cfg.aimbot ? pickTarget() : null;
-    if (t) {
-      applyAim(t);
-      if (cfg.autofire) fireCycle();
-    } else if (cfg.autofire && S.upAt) {
-      fire(false);
-      S.upAt = 0;
+    if (!C.thirdOn || !C.baseCam) {
+      C.baseCam = { x: c.position.x, y: c.position.y, z: c.position.z };
+      C.thirdOn = true;
     }
-    if (cfg.chams || cfg.wire) applyMats(true);
-    if (cfg.esp) drawEsp(); else clearEsp();
-    godTick();
-    fovTick();
-    thirdTick();
+    c.position.z = C.baseCam.z + 16;
+    c.position.y = C.baseCam.y + 4;
   }
 
-  window.__KRU = {
-    cfg: cfg,
-    state: S,
-    toggle: toggle,
-    uiToggle: function () {
-      if (!menuEl) { buildMenu(); cfg.menu = true; return; }
-      cfg.menu = !cfg.menu;
-      menuEl.style.display = cfg.menu ? '' : 'none';
-    },
-    rescan: scan
-  };
+  function paint(o, color, depthOff) {
+    if (!o || !isFn(o.traverse)) return;
+    o.traverse(function (n) {
+      if (!n || !n.material) return;
+      var ms = Array.isArray(n.material) ? n.material : [n.material];
+      for (var i = 0; i < ms.length; i++) {
+        var m = ms[i];
+        if (!m) continue;
+        if (m.__kruOrig === undefined) m.__kruOrig = { c: null, d: m.depthTest, o: m.opacity, t: m.transparent };
+        if (m.__kruOrig.c === null && m.color) m.__kruOrig.c = m.color.getHexString ? m.color.getHexString() : null;
+        if (color && m.color && m.color.set) m.color.set(color);
+        if (depthOff) { m.depthTest = false; m.transparent = true; m.opacity = 0.9; }
+        m.needsUpdate = true;
+      }
+    });
+  }
 
-  buildMenu();
-  toast('KRU loaded — scene menunggu game mulai');
-  requestAnimationFrame(loop);
+  function restore(o) {
+    if (!o || !isFn(o.traverse)) return;
+    o.traverse(function (n) {
+      if (!n || !n.material) return;
+      var ms = Array.isArray(n.material) ? n.material : [n.material];
+      for (var i = 0; i < ms.length; i++) {
+        var m = ms[i];
+        if (!m || !m.__kruOrig) continue;
+        if (m.__kruOrig.c !== null && m.color && m.color.set) m.color.set('#' + m.__kruOrig.c);
+        m.depthTest = m.__kruOrig.d;
+        m.opacity = m.__kruOrig.o;
+        m.transparent = m.__kruOrig.t;
+        m.needsUpdate = true;
+      }
+    });
+  }
+
+  function chamsTick() {
+    var list = listPlayers();
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (!p || !p.objInstances) continue;
+      if (S.chams) paint(p.objInstances, isTeammate(p) ? '#39ff14' : '#ff2b2b', true);
+      else restore(p.objInstances);
+    }
+  }
+
+  function wireTick() {
+    var sc = C.renderer && C.renderer.scene;
+    if (!sc || !isFn(sc.traverse)) return;
+    sc.traverse(function (n) {
+      if (!n || !n.material || n.type !== 'Mesh') return;
+      var ms = Array.isArray(n.material) ? n.material : [n.material];
+      for (var i = 0; i < ms.length; i++) if (ms[i]) ms[i].wireframe = !!S.wireframe;
+    });
+  }
+
+  var espBox = null, espLine = null, espBuilt = false;
+  function ensureEsp() {
+    if (espBuilt) return;
+    var host = document.getElementById('kru-esp');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'kru-esp';
+      host.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:999990;overflow:hidden;';
+      (document.body || document.documentElement).appendChild(host);
+    }
+    espBox = host;
+    espBuilt = true;
+  }
+
+  function espTick() {
+    ensureEsp();
+    if (!S.espBox && !S.espTracer) { if (espBox) espBox.innerHTML = ''; return; }
+    var list = listPlayers();
+    var me = C.me;
+    var s = vpSize();
+    var boxes = [];
+    var lines = [];
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (!p || p === me || p.isYou) continue;
+      if (p.active === false) continue;
+      if (typeof p.health === 'number' && p.health <= 0) continue;
+      if (S.teamCheck && isTeammate(p)) continue;
+      var hw = halfW(), eh = effH(p);
+      var pts = [
+        w2s(p.x - hw, p.y, p.z - hw), w2s(p.x + hw, p.y, p.z - hw),
+        w2s(p.x - hw, p.y, p.z + hw), w2s(p.x + hw, p.y, p.z + hw),
+        w2s(p.x - hw, p.y + eh, p.z - hw), w2s(p.x + hw, p.y + eh, p.z - hw),
+        w2s(p.x - hw, p.y + eh, p.z + hw), w2s(p.x + hw, p.y + eh, p.z + hw)
+      ];
+      var xmin = Infinity, ymin = Infinity, xmax = -Infinity, ymax = -Infinity, on = false;
+      for (var j = 0; j < 8; j++) {
+        var q = pts[j];
+        if (!q) continue;
+        on = true;
+        if (q.x < xmin) xmin = q.x;
+        if (q.x > xmax) xmax = q.x;
+        if (q.y < ymin) ymin = q.y;
+        if (q.y > ymax) ymax = q.y;
+      }
+      if (!on) continue;
+      if (xmin < 0) xmin = 0;
+      if (ymin < 0) ymin = 0;
+      if (xmax > s.w) xmax = s.w;
+      if (ymax > s.h) ymax = s.h;
+      if (xmax - xmin < 2) continue;
+      if (ymax - ymin < 2) continue;
+      var hp = (typeof p.health === 'number' && typeof p.maxHealth === 'number' && p.maxHealth > 0) ? Math.max(0, Math.min(1, p.health / p.maxHealth)) : null;
+      var col = '#ff2b2b';
+      if (hp !== null) col = hp > 0.66 ? '#ff2b2b' : (hp > 0.33 ? '#ff9e2b' : '#ff2b64');
+      if (S.espBox) {
+        boxes.push('<div style="position:absolute;left:' + xmin.toFixed(1) + 'px;top:' + ymin.toFixed(1) + 'px;width:' + (xmax - xmin).toFixed(1) + 'px;height:' + (ymax - ymin).toFixed(1) + 'px;border:1.5px solid ' + col + ';box-shadow:0 0 4px rgba(0,0,0,.85);"></div>');
+        if (hp !== null) {
+          boxes.push('<div style="position:absolute;left:' + (xmin - 7).toFixed(1) + 'px;top:' + ymin.toFixed(1) + 'px;width:4px;height:' + (ymax - ymin).toFixed(1) + 'px;background:rgba(0,0,0,.55);"></div>');
+          var hh = ((ymax - ymin) * hp);
+          var hy = ymax - hh;
+          boxes.push('<div style="position:absolute;left:' + (xmin - 7).toFixed(1) + 'px;top:' + hy.toFixed(1) + 'px;width:4px;height:' + hh.toFixed(1) + 'px;background:' + (hp > 0.66 ? '#39ff14' : (hp > 0.33 ? '#ffcf39' : '#ff2b2b')) + ';"></div>');
+        }
+        var nm = p.name ? String(p.name) : '';
+        var meta = '';
+        if (me) {
+          var d = Math.sqrt((p.x - me.x) * (p.x - me.x) + (p.y - me.y) * (p.y - me.y) + (p.z - me.z) * (p.z - me.z)) / 10;
+          meta = ' [' + Math.round(d) + 'm]';
+        }
+        var label = nm + (typeof p.health === 'number' ? ' ' + Math.round(p.health) + 'hp' : '') + meta;
+        var ly = ymax + 4;
+        if (ly > s.h - 14) ly = ymin - 16;
+        boxes.push('<div style="position:absolute;left:' + ((xmin + xmax) / 2).toFixed(1) + 'px;top:' + ly.toFixed(1) + 'px;transform:translateX(-50%);font:600 11px system-ui,sans-serif;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;">' + label + '</div>');
+      }
+      if (S.espTracer) {
+        lines.push('<line x1="' + (s.w / 2) + '" y1="' + s.h + '" x2="' + ((xmin + xmax) / 2).toFixed(1) + '" y2="' + ((ymin + ymax) / 2).toFixed(1) + '" stroke="' + col + '" stroke-width="1.5" opacity="0.75"/>');
+      }
+    }
+    var svg = '';
+    if (lines.length) {
+      svg = '<svg style="position:absolute;left:0;top:0;width:100%;height:100%;" xmlns="http://www.w3.org/2000/svg">' + lines.join('') + '</svg>';
+    }
+    if (espBox) espBox.innerHTML = svg + boxes.join('');
+  }
+
+  function refreshStatus() {
+    var el = document.getElementById('kru-status');
+    if (!el) return;
+    var l = plist();
+    el.textContent = 'game:' + (C.game ? 'OK' : 'wait') + ' · me:' + (C.me ? 'OK' : 'wait') + ' · render:' + (C.renderer ? 'OK' : 'wait') + ' · ctrls:' + (C.controls ? 'OK' : 'wait') + ' · players:' + (l ? l.length : 0);
+  }
+
+  var menuEl = null, bodyEl = null;
+  function buildMenu() {
+    if (menuEl && document.body.contains(menuEl)) return;
+    var old = document.getElementById('kru-menu');
+    if (old) old.parentNode.removeChild(old);
+    var m = document.createElement('div');
+    m.id = 'kru-menu';
+    m.style.cssText = 'position:fixed;left:14px;top:14px;width:246px;background:rgba(14,12,20,.94);border:1px solid rgba(255,120,180,.45);border-radius:10px;font:12px/1.4 system-ui,-apple-system,sans-serif;color:#f2e9f5;z-index:999999;box-shadow:0 8px 26px rgba(0,0,0,.55);backdrop-filter:blur(6px);user-select:none;';
+    var h = document.createElement('div');
+    h.id = 'kru-head';
+    h.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 9px;cursor:move;border-bottom:1px solid rgba(255,120,180,.28);border-radius:10px 10px 0 0;background:linear-gradient(180deg,rgba(255,110,170,.22),rgba(255,110,170,.05));';
+    h.innerHTML = '<span style="font-weight:700;letter-spacing:.3px;">🦊 Yukakoo Mod</span><span id="kru-v" style="opacity:.55;font-size:10px;">v2</span>';
+    var minBtn = document.createElement('button');
+    minBtn.id = 'kru-min';
+    minBtn.textContent = '—';
+    minBtn.title = 'Minimize';
+    minBtn.style.cssText = 'margin-left:auto;width:24px;height:20px;border-radius:5px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);color:#ffd9ea;font:700 13px/1 system-ui;cursor:pointer;';
+    h.appendChild(minBtn);
+    m.appendChild(h);
+
+    var b = document.createElement('div');
+    b.id = 'kru-body';
+    b.style.cssText = 'padding:8px 9px 10px;';
+    var items = [
+      ['aimbot', 'Aimbot'], ['autofire', 'Auto Fire'], ['teamCheck', 'Team Check'],
+      ['espBox', 'ESP Box'], ['espTracer', 'ESP Tracer'], ['chams', 'Chams'],
+      ['wireframe', 'Wireframe'], ['god', 'Godmode'], ['bhop', 'Auto Bhop'],
+      ['autorun', 'Auto Run'], ['third', 'Third Person']
+    ];
+    var grid = document.createElement('div');
+    grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:5px;';
+    items.forEach(function (it) {
+      var btn = document.createElement('button');
+      btn.className = 'kru-t';
+      btn.dataset.k = it[0];
+      btn.textContent = it[1];
+      btn.style.cssText = 'padding:6px 4px;border-radius:6px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#e8dcea;font:600 11px system-ui;cursor:pointer;text-align:left;padding-left:7px;transition:.12s;';
+      grid.appendChild(btn);
+    });
+    b.appendChild(grid);
+
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:8px;';
+    row.innerHTML = '<label style="flex:1;font-size:11px;opacity:.8;">Aim FOV</label>';
+    var fovIn = document.createElement('input');
+    fovIn.type = 'range'; fovIn.min = 10; fovIn.max = 160; fovIn.step = 5; fovIn.value = S.aimFov;
+    fovIn.style.cssText = 'flex:1;accent-color:#ff6eaa;';
+    var fovVal = document.createElement('span');
+    fovVal.style.cssText = 'width:26px;text-align:right;font-size:11px;';
+    fovVal.textContent = S.aimFov;
+    fovIn.oninput = function () { S.aimFov = +fovIn.value; fovVal.textContent = fovIn.value; };
+    row.appendChild(fovIn); row.appendChild(fovVal);
+    b.appendChild(row);
+
+    var row2 = document.createElement('div');
+    row2.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:5px;';
+    row2.innerHTML = '<label style="flex:1;font-size:11px;opacity:.8;">Screen FOV</label>';
+    var fovBtn = document.createElement('button');
+    fovBtn.id = 'kru-fovcycle';
+    fovBtn.style.cssText = 'min-width:56px;padding:4px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#ffd9ea;font:600 11px system-ui;cursor:pointer;';
+    row2.appendChild(fovBtn);
+    b.appendChild(row2);
+
+    var st = document.createElement('div');
+    st.id = 'kru-status';
+    st.style.cssText = 'margin-top:8px;font-size:10px;opacity:.6;word-break:break-all;line-height:1.35;';
+    b.appendChild(st);
+
+    var hint = document.createElement('div');
+    hint.style.cssText = 'margin-top:5px;font-size:10px;opacity:.45;';
+    hint.textContent = '1-9 toggle · 0 screen FOV · Insert minimize';
+    b.appendChild(hint);
+
+    m.appendChild(b);
+    (document.body || document.documentElement).appendChild(m);
+    menuEl = m; bodyEl = b;
+    paintMenu();
+    wireMenu();
+    refreshStatus();
+  }
+
+  function paintMenu() {
+    var btns = document.querySelectorAll('#kru-menu .kru-t');
+    for (var i = 0; i < btns.length; i++) {
+      var k = btns[i].dataset.k;
+      var on = !!S[k];
+      btns[i].style.background = on ? 'linear-gradient(90deg,rgba(255,110,170,.4),rgba(255,110,170,.16))' : 'rgba(255,255,255,.05)';
+      btns[i].style.borderColor = on ? 'rgba(255,140,190,.7)' : 'rgba(255,255,255,.16)';
+      btns[i].style.color = on ? '#fff0f7' : '#c9bed1';
+      btns[i].style.boxShadow = on ? '0 0 8px rgba(255,110,170,.3)' : 'none';
+    }
+    var f = document.getElementById('kru-fovcycle');
+    if (f) f.textContent = FOVS[S.fovIdx] === 0 ? 'Default' : FOVS[S.fovIdx] + '°';
+    if (menuEl) { menuEl.style.width = S.min ? 'auto' : '246px'; menuEl.style.padding = '0'; menuEl.style.minWidth = S.min ? '0' : ''; }
+    if (bodyEl) bodyEl.style.display = S.min ? 'none' : 'block';
+    var mb = document.getElementById('kru-min');
+    if (mb) mb.textContent = S.min ? '▢' : '—';
+    try { localStorage.setItem('kru_min', S.min ? '1' : '0'); } catch (e) { }
+  }
+
+  function toggle(k) { S[k] = !S[k]; paintMenu(); }
+
+  function wireMenu() {
+    var btns = menuEl.querySelectorAll('.kru-t');
+    for (var i = 0; i < btns.length; i++) {
+      (function (b) { b.onclick = function () { toggle(b.dataset.k); }; })(btns[i]);
+    }
+    var f = document.getElementById('kru-fovcycle');
+    if (f) f.onclick = function () { S.fovIdx = (S.fovIdx + 1) % FOVS.length; paintMenu(); };
+    document.getElementById('kru-min').onclick = function (e) { e.stopPropagation(); S.min = !S.min; paintMenu(); };
+
+    var head = document.getElementById('kru-head');
+    var drag = false, ox = 0, oy = 0;
+    function start(cx, cy) {
+      var r = menuEl.getBoundingClientRect();
+      ox = cx - r.left; oy = cy - r.top; drag = true;
+      menuEl.style.transition = 'none';
+    }
+    function move(cx, cy) {
+      if (!drag) return;
+      var x = Math.max(0, Math.min(window.innerWidth - 60, cx - ox));
+      var y = Math.max(0, Math.min(window.innerHeight - 24, cy - oy));
+      menuEl.style.left = x + 'px'; menuEl.style.top = y + 'px';
+    }
+    function end() { drag = false; }
+    head.addEventListener('mousedown', function (e) { if (e.target.id === 'kru-min') return; start(e.clientX, e.clientY); e.preventDefault(); });
+    document.addEventListener('mousemove', function (e) { move(e.clientX, e.clientY); });
+    document.addEventListener('mouseup', end);
+    head.addEventListener('touchstart', function (e) { if (e.target.id === 'kru-min') return; var t = e.touches[0]; start(t.clientX, t.clientY); }, { passive: true });
+    document.addEventListener('touchmove', function (e) { if (!drag) return; var t = e.touches[0]; move(t.clientX, t.clientY); }, { passive: true });
+    document.addEventListener('touchend', end);
+  }
+
+  var TOGGLES = ['aimbot', 'autofire', 'espBox', 'espTracer', 'chams', 'wireframe', 'god', 'bhop', 'autorun', 'third'];
+  document.addEventListener('keydown', function (e) {
+    var k = e.key;
+    if (k === ' ') C.spaceDown = true;
+    if (k === 'Insert') { S.min = !S.min; paintMenu(); }
+    if (k === '0') { S.fovIdx = (S.fovIdx + 1) % FOVS.length; paintMenu(); }
+    if (k === '1') { S.teamCheck = !S.teamCheck; paintMenu(); }
+    var n = parseInt(k, 10);
+    if (n >= 2 && n <= 9 && TOGGLES[n - 2]) { toggle(TOGGLES[n - 2]); }
+  }, true);
+  document.addEventListener('keyup', function (e) { if (e.key === ' ') C.spaceDown = false; }, true);
+
+  function boot() {
+    safe(installHooks);
+    safe(function () {
+      try { S.min = localStorage.getItem('kru_min') === '1'; } catch (e) { }
+    });
+    safe(buildMenu);
+    safe(refreshStatus);
+    setInterval(function () { safe(validate); safe(refreshStatus); }, 700);
+    setInterval(function () { if (document.getElementById('kru-menu')) return; safe(buildMenu); }, 2000);
+    var last = 0;
+    function loop(ts) {
+      if (ts - last > 33) { last = ts; if (C.ready) safe(frame); }
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+    K.state = S; K.cap = C;
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
 })();
