@@ -9,7 +9,7 @@ Bookmarklet cheat untuk krunker.io — v8.
 Buka krunker.io, lalu **segera klik bookmark begitu halaman muncul** (±3 detik pertama). Setelah menu muncul, masuk match:
 
 ```javascript
-javascript:(function(){var u=['https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@f5d6ee6b8fab83a217c802138599a79952af1e43/krunker.js','https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@main/krunker.js?v='+Date.now()];var i=0;function go(){if(i>=u.length)return;var s=document.createElement('script');s.src=u[i++];s.onerror=go;document.body.appendChild(s);}go();})();
+javascript:(function(){var u=['https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@ebd93be9129433a1b039c5a5a73a769078a68ad5/krunker.js','https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@main/krunker.js?v='+Date.now()];var i=0;function go(){if(i>=u.length)return;var s=document.createElement('script');s.src=u[i++];s.onerror=go;document.body.appendChild(s);}go();})();
 ```
 
 Loader menaruh script dari jsdelivr, jadi update cheat cukup push ke repo — bookmark tidak perlu diganti.
