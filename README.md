@@ -1,20 +1,20 @@
 # krunker-cheat
 
-Bookmarklet cheat untuk krunker.io — v7.
+Bookmarklet cheat untuk krunker.io — v8.
 
 ## Pakai
 
-Buka krunker.io, **masuk match dulu**, lalu klik bookmark:
+Buka krunker.io, lalu **segera klik bookmark begitu halaman muncul** (±3 detik pertama). Setelah menu muncul, masuk match:
 
 ```javascript
-javascript:(function(){var u=['https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@a9a6519827ad37f3de6726f9febbd4bcdc0c67b3/krunker.js','https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@main/krunker.js?v='+Date.now()];var i=0;function go(){if(i>=u.length)return;var s=document.createElement('script');s.src=u[i++];s.onerror=go;document.body.appendChild(s);}go();})();
+javascript:(function(){var u=['https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@d83e8c78ab186663596bd1093543a6b5c0dfb46f/krunker.js','https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@main/krunker.js?v='+Date.now()];var i=0;function go(){if(i>=u.length)return;var s=document.createElement('script');s.src=u[i++];s.onerror=go;document.body.appendChild(s);}go();})();
 ```
 
 Loader menaruh script dari jsdelivr, jadi update cheat cukup push ke repo — bookmark tidak perlu diganti.
 
 `?v='+Date.now()` itu **cache-buster**: jsdelivr ngirim `max-age=604800`, jadi HP bisa nyimpen script lama sampai 7 hari. Tanpa buster, push baru nggak kebaca sampai cache expired. Dengan buster, setiap inject selalu ambil file terbaru — dan karena buster-nya dibikin waktu jalan, **bookmark-nya tetap sama selamanya**.
 
-Kalau menu muncul tapi versinya bukan `v7` (lihat badge di header), artinya halaman masih nyala script lama — **reload dulu halaman krunker-nya**, baru inject ulang. Guard `window.__KRU` bikin inject kedua jadi no-op, jadi script lama nggak bisa ditimpa selama satu sesi.
+Kalau menu muncul tapi versinya bukan `v8` (lihat badge di header), artinya halaman masih nyala script lama — **reload dulu halaman krunker-nya**, baru inject ulang. Guard `window.__KRU` bikin inject kedua jadi no-op, jadi script lama nggak bisa ditimpa selama satu sesi.
 
 Pakai **Firefox Android** (Chrome Android tidak bisa ngedit URL bookmark).
 
@@ -23,18 +23,18 @@ Pakai **Firefox Android** (Chrome Android tidak bisa ngedit URL bookmark).
 Sudut kanan-atas ada baris kecil — alat baca, bukan bagian menu:
 
 ```
-v7 m1 g1 t12 f3 e0 r1 | kru-t | <pesan error terakhir>
+v8 m1 g1 t12 f3 e0 r1 | kru-t | <pesan error terakhir>
 ```
 
 | Field | Arti |
 |---|---|
-| `v7` | versi build yang sedang jalan |
+| `v8` | versi build yang sedang jalan |
 | `m1` | `1` = menu ada di halaman, `0` = build gagal pasang menu |
 | `g1` | `1` = guard window-capture terpasang |
 | `t` | event yang **masuk** ke area menu |
 | `f` | event yang **diteruskan** ke tombol |
 | `e` | runtime error milik cheat sendiri |
-| `r` | `1` = objek game ketemu dan frame jalan (cheat aktif), `0` = belum ada objek game |
+| `r` | `1` = objek game ketemu dan frame jalan (cheat aktif). `0:FRZ-...` = **terlambat** — `Object.prototype` sudah dibekukan Krunker; `0:game/me/render/ctrls` = objek tertentu belum ketemu |
 | ketiga kolom | elemen yang benar-benar menempati titik pusat menu |
 
 Cara baca saat tombol tidak bisa dipencet:
@@ -110,6 +110,58 @@ Bukti: di v4, satu tap header lalu suntik `touchmove(350,800)` → box **(10,10)
 Loader sekarang memakai **URL commit-pin** `@a9a6519827ad37f3de6726f9febbd4bcdc0c67b3…` (selalu menghasilkan isi yang sama, dibuktikan md5 `b191d8c07c83b303d17757a3cbd2e5ff`) lalu jatuh ke `@main?v=` kalau pin gagal. Tiap rilis baru, pin diganti ke commit rilis itu.
 
 > **Penting:** bookmarklet yang tersimpan di Firefox masih versi lama. Hapus yang lama, salin ulang dari `loader-bookmarklet.txt`.
+
+## v8 changelog
+
+**Keluhan: `Cannot define property controls, object is not extensible`, panel `e4 r0`, cheat tetap mati.** Dua akar.
+
+### 1. `Object.prototype` Krunker dibekukan ±3–7 detik setelah halaman dibuka
+
+Diagnosa langsung dari halaman asli (`Object.isExtensible(Object.prototype)` dipantau tiap tahap):
+
+| waktu sejak commit | `Object.prototype` |
+|---|---|
+| 0 / 300 / 1000 / 3000 ms | **extensible** |
+| 6000 ms | **frozen** |
+
+`Array.prototype` dan `Function.prototype` tetap extensible — **hanya `Object.prototype`** yang dikunci. Akibatnya `defineProto()` gagal total (`e4`) begitu inject jatuh setelah jendela itu, dan **tidak ada** global `window` yang memegang objek game (disisir 1596 nama → nol). Setter `players`/`renderer`/`controls` tidak pernah terpasang → `C.ready` selamanya `false`.
+
+**Konsekuensinya wajib: bookmarklet dijalankan segera setelah halaman muncul.** Panel sekarang melaporkan kondisi ini sendiri — `r0:FRZ-game` artinya *frozen*, `proto:FROZEN` muncul di status line.
+
+### 2. Store WeakMap dipakai bersama oleh semua nama properti (bug v8 sendiri, ketemu saat diagnosa)
+
+`KRU_STORE` adalah **satu** WeakMap untuk `canvas`/`players`/`renderer`/`controls`. Setter menulis `KRU_STORE.set(this, v)` tanpa kunci nama, jadi penulisan `.controls` **menimpa** `.players`. Getter `players` lalu mengembalikan nilai `controls` → `players.list` `undefined` → `validate()` membatalkan `C.game` (`C.game = null`) **setelah** `C.ready` sempat `true`.
+
+Bukti pembekuan (`K.dbg.nullWhy`):
+
+```
+had:true  same:true   ← C.game === C.gameCand, objeknya benar
+pl:"object"  lst:"undefined"   ← players terbaca, tapi .list hilang
+wm:true   ← WeakMap memang punya entri... untuk nama yang salah
+```
+
+**Fix:** `KRU_STORES[name]` — satu WeakMap per nama, dipakai di getter dan setter.
+
+### 3. Jaring cadangan bila sudah frozen
+
+Properti `Object.prototype` yang **sudah ada** tetap bisa didefinisikan ulang walau `preventExtensions` sudah jalan. `hasOwnProperty`, `isPrototypeOf`, `propertyIsEnumerable`, `toLocaleString`, `toString`, `valueOf` di-wrap agar, saat `this` ternyata objek game (`players.list` ber-`length` angka), ia langsung diadopsi. Nol risiko performa — delegasi ke fungsi asli.
+
+### 4. `players` gate dilonggarkan
+
+`Array.isArray(v.list)` → `typeof v.list.length === 'number'`. Objek `players` di lapangan bukan array murni.
+
+### 5. `hydrate()`
+
+Saat `C.game` ada tapi `renderer`/`controls` belum, propertinya disisir (maks 400) — `renderer` dikenali dari `.camera.matrixWorldInverse`, `controls` dari `.keys`/`.binds`.
+
+### Bukti A/B (objek game di closure, `players` sudah ada sebelum inject, `controls` di-assign setelah)
+
+| | awal (sebelum freeze) | telat (setelah freeze) |
+|---|---|---|
+| **v7** | `e4 r0`, `scan:3175` — box/tracer kosong | `e4 r0`, error sama |
+| **v8** | **`ready:true, e0, r1, listLen:2, hasBox:true, hasLine:true`** | `e4`, `r0:FRZ-game` (jelas: frozen) |
+
+Test: `mock_test` **39/39**, `diag5` **12/12**, `diag9` **8/8**, `diag11` **7 ok + 2 lobby** (baseline).
 
 ## v7 changelog
 
