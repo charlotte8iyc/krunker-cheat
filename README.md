@@ -104,6 +104,12 @@ Perbaikan:
 
 Bukti: di v4, satu tap header lalu suntik `touchmove(350,800)` → box **(10,10) → (273,787)**. Di v5: `getDrag()` = `false` setelah tap header, box tetap **(10,10)** setelah dua suntik, drag dari header tetap jalan → **(223,587)**.
 
+**Loader dipin ke commit.** Ketemu juga kenapa update sebelumnya nggak pernah nyampe: jsdelivr `@main` itu **resolusi branch yang di-cache berlapis** — setelah purge, ia balik menyajikan salinan lama (terekam melompat `v2.3 → v4`, padahal main sudah `v5`), dan `?v=` dari loader cuma memecah cache edge, bukan cache resolusi branch-nya. Jadi test lama jalan di build terbaru, tapi perangkat Yukakoo ngambil build lama.
+
+Loader sekarang memakai **URL commit-pin** `@c37586be…` (selalu menghasilkan isi yang sama, dibuktikan md5 `b191d8c07c83b303d17757a3cbd2e5ff`) lalu jatuh ke `@main?v=` kalau pin gagal. Tiap rilis baru, pin diganti ke commit rilis itu.
+
+> **Penting:** bookmarklet yang tersimpan di Firefox masih versi lama. Hapus yang lama, salin ulang dari `loader-bookmarklet.txt`.
+
 ## Test
 
 ```
