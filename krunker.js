@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   if (window.__KRU) return;
-  var K = { v: 5, dbg: { g: 0, t: 0, f: 0, e: 0, last: '' } };
+  var K = { v: 6, dbg: { g: 0, t: 0, f: 0, e: 0, last: '' } };
   window.__KRU = K;
   window.addEventListener('error', function (ev) {
     try { K.dbg.e++; K.dbg.last = String((ev && ev.message) || 'err').slice(0, 34); } catch (e) { }
@@ -520,7 +520,7 @@
     var h = document.createElement('div');
     h.id = 'kru-head';
     h.style.cssText = 'display:flex;align-items:center;gap:5px;padding:4px 6px;cursor:move;border-bottom:1px solid rgba(255,120,180,.25);border-radius:8px 8px 0 0;background:linear-gradient(180deg,rgba(255,110,170,.2),rgba(255,110,170,.04));';
-    h.innerHTML = '<span style="font-weight:700;font-size:10px;letter-spacing:.2px;">🦊 Yukakoo</span><span id="kru-v" style="opacity:.5;font-size:8px;">v5</span>';
+    h.innerHTML = '<span style="font-weight:700;font-size:10px;letter-spacing:.2px;">🦊 Yukakoo</span><span id="kru-v" style="opacity:.5;font-size:8px;">v6</span>';
     var minBtn = document.createElement('button');
     minBtn.id = 'kru-min';
     minBtn.textContent = '—';
@@ -552,24 +552,24 @@
     b.appendChild(grid);
 
     var row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:5px;';
-    row.innerHTML = '<label style="flex:1;font-size:9px;opacity:.75;">AimFov</label>';
+    row.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:5px;min-width:0;overflow:hidden;';
+    row.innerHTML = '<label style="flex:1 1 0;min-width:0;font-size:9px;opacity:.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">AimFov</label>';
     var fovIn = document.createElement('input');
     fovIn.type = 'range'; fovIn.min = 10; fovIn.max = 160; fovIn.step = 5; fovIn.value = S.aimFov;
-    fovIn.style.cssText = 'flex:1;accent-color:#ff6eaa;height:12px;';
+    fovIn.style.cssText = 'flex:1 1 0;min-width:0;width:0;accent-color:#ff6eaa;height:14px;margin:0;';
     var fovVal = document.createElement('span');
-    fovVal.style.cssText = 'width:20px;text-align:right;font-size:9px;';
+    fovVal.style.cssText = 'flex:none;width:20px;text-align:right;font-size:9px;';
     fovVal.textContent = S.aimFov;
     fovIn.oninput = function () { S.aimFov = +fovIn.value; fovVal.textContent = fovIn.value; };
     row.appendChild(fovIn); row.appendChild(fovVal);
     b.appendChild(row);
 
     var row2 = document.createElement('div');
-    row2.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:4px;';
-    row2.innerHTML = '<label style="flex:1;font-size:9px;opacity:.75;">ScreenFOV</label>';
+    row2.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:4px;min-width:0;overflow:hidden;';
+    row2.innerHTML = '<label style="flex:1 1 0;min-width:0;font-size:9px;opacity:.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">ScreenFOV</label>';
     var fovBtn = document.createElement('button');
     fovBtn.id = 'kru-fovcycle';
-    fovBtn.style.cssText = 'min-width:46px;padding:2px 4px;border-radius:4px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#ffd9ea;font:600 9px system-ui;cursor:pointer;';
+    fovBtn.style.cssText = 'flex:none;min-width:46px;padding:2px 4px;border-radius:4px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#ffd9ea;font:600 9px system-ui;cursor:pointer;';
     row2.appendChild(fovBtn);
     b.appendChild(row2);
 
