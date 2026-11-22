@@ -1,8 +1,12 @@
 (function () {
   'use strict';
   if (window.__KRU) return;
-  var K = { v: 3 };
+  var K = { v: 4 };
   window.__KRU = K;
+  K.dbg = { g: 0, t: 0, f: 0, e: 0, last: '' };
+  window.addEventListener('error', function (ev) {
+    try { K.dbg.e++; K.dbg.last = String((ev && ev.message) || 'err').slice(0, 34); } catch (e) { }
+  }, true);
 
   var S = {
     aimbot: true, autofire: true, espBox: true, espTracer: false,
@@ -517,7 +521,7 @@
     var h = document.createElement('div');
     h.id = 'kru-head';
     h.style.cssText = 'display:flex;align-items:center;gap:5px;padding:4px 6px;cursor:move;border-bottom:1px solid rgba(255,120,180,.25);border-radius:8px 8px 0 0;background:linear-gradient(180deg,rgba(255,110,170,.2),rgba(255,110,170,.04));';
-    h.innerHTML = '<span style="font-weight:700;font-size:10px;letter-spacing:.2px;">🦊 Yukakoo</span><span id="kru-v" style="opacity:.5;font-size:8px;">v3</span>';
+    h.innerHTML = '<span style="font-weight:700;font-size:10px;letter-spacing:.2px;">🦊 Yukakoo</span><span id="kru-v" style="opacity:.5;font-size:8px;">v4</span>';
     var minBtn = document.createElement('button');
     minBtn.id = 'kru-min';
     minBtn.textContent = '—';
@@ -643,6 +647,7 @@
       if (!menuEl || !document.body.contains(menuEl)) return;
       var xy = kruXY(ev);
       if (!xy) return;
+      K.dbg.t++;
       var el = kruPick(xy[0], xy[1]);
       if (!el) return;
       var ours = !!(ev.target && ev.target.closest && ev.target.closest('#kru-menu'));
@@ -656,6 +661,7 @@
         cur = cur.parentNode;
       }
       if (!fn) return;
+      K.dbg.f++;
       fn.call(host, {
         type: 'click', clientX: xy[0], clientY: xy[1], button: 0, buttons: 1,
         detail: 1, isTrusted: false, view: window, target: host, currentTarget: host,
@@ -667,6 +673,7 @@
   function kruInstallGuard() {
     if (kruGuardOn) return;
     kruGuardOn = true;
+    K.dbg.g = 1;
     var evs = ['pointerdown', 'mousedown', 'touchstart', 'click'];
     for (var i = 0; i < evs.length; i++) window.addEventListener(evs[i], kruGuard, true);
   }
@@ -721,14 +728,46 @@
   }, true);
   document.addEventListener('keyup', function (e) { if (e.key === ' ') C.spaceDown = false; }, true);
 
+  function kruDbgMount() {
+    var el = document.getElementById('kru-dbg');
+    if (el) return;
+    el = document.createElement('div');
+    el.id = 'kru-dbg';
+    el.style.cssText = 'position:fixed;right:0;top:0;z-index:2147483647;pointer-events:none;' +
+      'font:9px/1.45 ui-monospace,monospace;color:#ffd9ea;background:rgba(0,0,0,.78);' +
+      'padding:2px 5px;border-radius:0 0 0 6px;max-width:78vw;white-space:nowrap;' +
+      'overflow:hidden;text-overflow:ellipsis;';
+    document.body.appendChild(el);
+  }
+  function kruDbgPaint() {
+    try {
+      var el = document.getElementById('kru-dbg');
+      if (!el) return;
+      var d = K.dbg, m = document.getElementById('kru-menu');
+      var hit = 'noMenu';
+      if (m) {
+        var r = m.getBoundingClientRect();
+        if (r.width > 0) {
+          var h = document.elementFromPoint(r.left + r.width / 2, r.top + 14);
+          hit = h ? String(h.id || h.className || h.tagName || '?').slice(0, 14) : 'null';
+        } else hit = 'hidden';
+      }
+      var line = 'v' + K.v + ' m' + (m ? 1 : 0) + ' g' + d.g + ' t' + d.t +
+        ' f' + d.f + ' e' + d.e + ' | ' + hit + (d.last ? ' | ' + d.last : '');
+      if (el.textContent !== line) el.textContent = line;
+    } catch (e) { }
+  }
+
   function boot() {
     safe(installHooks);
     safe(function () {
       try { S.min = localStorage.getItem('kru_min') === '1'; } catch (e) { }
     });
     safe(buildMenu);
+    safe(kruDbgMount);
     safe(refreshStatus);
-    setInterval(function () { safe(validate); safe(refreshStatus); }, 700);
+    safe(kruDbgPaint);
+    setInterval(function () { safe(validate); safe(refreshStatus); safe(kruDbgPaint); }, 700);
     kruInstallGuard();
     setInterval(function () {
       var cur = document.getElementById('kru-menu');
