@@ -1,20 +1,20 @@
 # krunker-cheat
 
-Bookmarklet cheat untuk krunker.io — v6.
+Bookmarklet cheat untuk krunker.io — v7.
 
 ## Pakai
 
 Buka krunker.io, **masuk match dulu**, lalu klik bookmark:
 
 ```javascript
-javascript:(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@main/krunker.js?v='+Date.now();document.body.appendChild(s);})();
+javascript:(function(){var u=['https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@a9a6519827ad37f3de6726f9febbd4bcdc0c67b3/krunker.js','https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@main/krunker.js?v='+Date.now()];var i=0;function go(){if(i>=u.length)return;var s=document.createElement('script');s.src=u[i++];s.onerror=go;document.body.appendChild(s);}go();})();
 ```
 
 Loader menaruh script dari jsdelivr, jadi update cheat cukup push ke repo — bookmark tidak perlu diganti.
 
 `?v='+Date.now()` itu **cache-buster**: jsdelivr ngirim `max-age=604800`, jadi HP bisa nyimpen script lama sampai 7 hari. Tanpa buster, push baru nggak kebaca sampai cache expired. Dengan buster, setiap inject selalu ambil file terbaru — dan karena buster-nya dibikin waktu jalan, **bookmark-nya tetap sama selamanya**.
 
-Kalau menu muncul tapi versinya bukan `v6` (lihat badge di header), artinya halaman masih nyala script lama — **reload dulu halaman krunker-nya**, baru inject ulang. Guard `window.__KRU` bikin inject kedua jadi no-op, jadi script lama nggak bisa ditimpa selama satu sesi.
+Kalau menu muncul tapi versinya bukan `v7` (lihat badge di header), artinya halaman masih nyala script lama — **reload dulu halaman krunker-nya**, baru inject ulang. Guard `window.__KRU` bikin inject kedua jadi no-op, jadi script lama nggak bisa ditimpa selama satu sesi.
 
 Pakai **Firefox Android** (Chrome Android tidak bisa ngedit URL bookmark).
 
@@ -23,17 +23,18 @@ Pakai **Firefox Android** (Chrome Android tidak bisa ngedit URL bookmark).
 Sudut kanan-atas ada baris kecil — alat baca, bukan bagian menu:
 
 ```
-v6 m1 g1 t12 f3 e0 | kru-t | <pesan error terakhir>
+v7 m1 g1 t12 f3 e0 r1 | kru-t | <pesan error terakhir>
 ```
 
 | Field | Arti |
 |---|---|
-| `v6` | versi build yang sedang jalan |
+| `v7` | versi build yang sedang jalan |
 | `m1` | `1` = menu ada di halaman, `0` = build gagal pasang menu |
 | `g1` | `1` = guard window-capture terpasang |
 | `t` | event yang **masuk** ke area menu |
 | `f` | event yang **diteruskan** ke tombol |
 | `e` | runtime error milik cheat sendiri |
+| `r` | `1` = objek game ketemu dan frame jalan (cheat aktif), `0` = belum ada objek game |
 | ketiga kolom | elemen yang benar-benar menempati titik pusat menu |
 
 Cara baca saat tombol tidak bisa dipencet:
@@ -106,9 +107,27 @@ Bukti: di v4, satu tap header lalu suntik `touchmove(350,800)` → box **(10,10)
 
 **Loader dipin ke commit.** Ketemu juga kenapa update sebelumnya nggak pernah nyampe: jsdelivr `@main` itu **resolusi branch yang di-cache berlapis** — setelah purge, ia balik menyajikan salinan lama (terekam melompat `v2.3 → v4`, padahal main sudah `v5`), dan `?v=` dari loader cuma memecah cache edge, bukan cache resolusi branch-nya. Jadi test lama jalan di build terbaru, tapi perangkat Yukakoo ngambil build lama.
 
-Loader sekarang memakai **URL commit-pin** `@f69ab9de…` (selalu menghasilkan isi yang sama, dibuktikan md5 `b191d8c07c83b303d17757a3cbd2e5ff`) lalu jatuh ke `@main?v=` kalau pin gagal. Tiap rilis baru, pin diganti ke commit rilis itu.
+Loader sekarang memakai **URL commit-pin** `@a9a6519827ad37f3de6726f9febbd4bcdc0c67b3…` (selalu menghasilkan isi yang sama, dibuktikan md5 `b191d8c07c83b303d17757a3cbd2e5ff`) lalu jatuh ke `@main?v=` kalau pin gagal. Tiap rilis baru, pin diganti ke commit rilis itu.
 
 > **Penting:** bookmarklet yang tersimpan di Firefox masih versi lama. Hapus yang lama, salin ulang dari `loader-bookmarklet.txt`.
+
+## v7 changelog
+
+**Semua cheat tidak berefek di match nyata** — keluhan: aimbot, wire, box, line, god semuanya mati total walau tombol sudah hidup-mati. Penyebabnya di `frame()`: `if (!C.ready) return;` — dan `C.ready` hanya bisa jadi `true` kalau `C.game`, `C.me`, `C.renderer` ketemu. Ketiganya diisi **hanya** lewat setter di `Object.prototype` (`defineProto`) yang menyala saat game *meng-assign* properti itu. Kalau objek game sudah dibuat sebelum bookmarklet diinjeksi — atau propertinya ditaruh sebagai *own property* sejak awal — setter itu **tidak pernah kepanggil**, `C.ready` selamanya `false`, dan seluruh jalur aimbot/ESP/FOV/third-person mati. Tombol menu tetap jalan karena jalurnya terpisah, makanya kelihatannya "cuma tombolnya doang yang merespons".
+
+Bukti A/B (objek game disuntik *setelah* cheat terpasang, meniru kondisi inject telat):
+
+- **v6 (lama):** `ready:false, game:false, renderer:false, espLen:-1` → box & tracer **tidak ada satu pun** yang tergambar.
+- **v7 (baru):** `ready:true, game:true, renderer:true, me:true, controls:true, scan:hit`, `espLen:794`, `hasBox:true, hasLine:true`.
+
+Perbaikan:
+
+1. **Pemburu aktif `resolveScan()`** — jalan tiap 700ms selama `C.ready` masih `false`. Fase 1 menyisir seluruh global `window` (`Object.getOwnPropertyNames(window)`, ±1600 nama) murah tanpa anggaran; fase 2 menyelam satu level ke dalam tiap objek dengan anggaran 6000 pembacaan, melewati DOM node dan `window` sendiri. Kandidat cocok kalau ada `obj.players.list` ber-`length` angka → dijadikan `C.game`, lalu `validate()` mengisi renderer/controls/me seperti biasa.
+2. **Pemburu pemilik canvas** — fase yang sama mencari objek yang `obj.canvas === #game-overlay`; kalau ketemu, `C.overlay` diganti (jadi `vpSize()` baca ukuran canvas asli, bukan `window`) dan `hookRenderOn()` dipasang telat — ini jaring pengaman kalau setter `canvas` kelewat.
+3. **Guard lintas-origin** — `o.nodeType` dibaca di luar `try`. Krunker menaruh iframe lintas-origin bernama di `window`; begitu disentuh, `resolveScan` **keluar seluruhnya** sebelum `C.scanN` sempat diisi (terbaca sebagai `scan:0`, padahal loop-nya gagal di tengah jalan). Sekarang dibungkus `try/catch` → iframe langsung dilewati.
+4. **`safe()` sekarang mencatat** — dulu `catch (e) { }` menelan semua error tanpa jejak, jadi `e0` di panel itu bohong: kegagalan nyata tidak pernah tercatat. Sekarang `K.dbg.e++` dan `K.dbg.last` diisi, jadi `e` benar-benar berarti.
+5. **Flag `r` di panel diagnostik** — `r1` = objek game ketemu dan frame jalan. Ini angka yang menentukan cheat hidup atau mati, bukan `t`/`f` (itu urusan tombol).
+6. **Status line bertambah `scan:`** — `scan:hit` = pemburu nemu objek, `scan:<n>` = berapa objek sudah dibaca.
 
 ## v6 changelog
 
