@@ -221,20 +221,6 @@
   }
 
   function installHooks() {
-    defineProto('canvas', function (v) {
-      if (v && v.id === 'game-overlay') {
-        C.overlay = this;
-        safe(function () { C.ctx = v.getContext('2d'); });
-        hookRenderOn(this);
-      }
-    });
-    defineProto('players', function (v) {
-      if (v && typeof v.list !== 'undefined' && v.list && typeof v.list.length === 'number') C.gameCand = this;
-      validate();
-    });
-    defineProto('renderer', function (v) { if (v && v.camera) { C.rendererCand = v; validate(); } });
-    defineProto('controls', function (v) { if (v && (v.keys || v.binds)) { C.controlsCand = v; validate(); } });
-    safe(installLateFallback);
     safe(function () {
       var g = document.getElementById('game-overlay');
       if (g) { C.overlay = C.overlay || {}; C.ctx = C.ctx || g.getContext('2d'); }
@@ -624,17 +610,56 @@ function kruFindRendererFromGL(gl) {
         if (!o || (typeof o !== 'object' && typeof o !== 'function')) continue;
         if (o === window || o.nodeType) continue;
         if (o.context === gl && o.camera && o.camera.matrixWorldInverse && o.camera.projectionMatrix) {
-          if (!C.renderer) { C.renderer = o; validate(); return; }
+          if (!C.renderer) { C.renderer = o; validate(); kruFindGameDeep(o); return; }
         }
         var ks = Object.getOwnPropertyNames(o);
         for (var j = 0; j < Math.min(ks.length, 40); j++) {
           try {
             var v = o[ks[j]];
             if (v && v !== o && v.context === gl && v.camera && v.camera.matrixWorldInverse) {
-              if (!C.renderer) { C.renderer = v; validate(); return; }
+              if (!C.renderer) { C.renderer = v; validate(); kruFindGameDeep(v); return; }
             }
           } catch (e) { }
         }
+      } catch (e) { }
+    }
+  } catch (e) { }
+}
+
+function kruFindGameDeep(root) {
+  if (!root || C.game) return;
+  try {
+    var ks = Object.getOwnPropertyNames(root);
+    for (var i = 0; i < ks.length && i < 120; i++) {
+      try {
+        var v = root[ks[i]];
+        if (!v || (typeof v !== 'object' && typeof v !== 'function')) continue;
+        if (v === root) continue;
+        try {
+          if (v.players && v.players.list && typeof v.players.list.length === 'number') {
+            C.gameCand = v;
+            if (!C.game) C.game = v;
+            validate();
+            hydrate();
+            return;
+          }
+        } catch (e) { }
+        try {
+          var ks2 = Object.getOwnPropertyNames(v);
+          for (var j = 0; j < ks2.length && j < 60; j++) {
+            try {
+              var v2 = v[ks2[j]];
+              if (!v2 || (typeof v2 !== 'object' && typeof v2 !== 'function') || v2 === v) continue;
+              if (v2.players && v2.players.list && typeof v2.players.list.length === 'number') {
+                C.gameCand = v2;
+                if (!C.game) C.game = v2;
+                validate();
+                hydrate();
+                return;
+              }
+            } catch (e) { }
+          }
+        } catch (e) { }
       } catch (e) { }
     }
   } catch (e) { }
@@ -706,6 +731,8 @@ function kruAcquireLate() {
       var gl = ge.getContext('webgl') || ge.getContext('webgl2');
       if (gl) safe(function() { kruFindRendererFromGL(gl); });
     }
+    if (ge && !C.game) safe(function() { kruFindGameDeep(ge); });
+    if (!C.game && C.renderer) safe(function() { kruFindGameDeep(C.renderer); });
   } catch (e) { }
   safe(validate);
 }
@@ -1070,7 +1097,7 @@ function kruAcquireLate() {
       requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
-    K.state = S; K.cap = C;
+    K.state = S; K.cap = C; K.kruAcquireLate = kruAcquireLate; K.hookRenderOn = hookRenderOn;
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
