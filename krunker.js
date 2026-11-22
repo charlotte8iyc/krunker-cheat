@@ -434,6 +434,7 @@
     safe(wireTick);
     safe(espTick);
   }
+  K.kruFrame = frame;
 
   function fovTick() {
     var c = cam();
