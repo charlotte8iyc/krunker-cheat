@@ -1,6 +1,6 @@
 # krunker-cheat
 
-Bookmarklet cheat untuk krunker.io — v2.3.
+Bookmarklet cheat untuk krunker.io — v4.
 
 ## Pakai
 
@@ -14,9 +14,33 @@ Loader menaruh script dari jsdelivr, jadi update cheat cukup push ke repo — bo
 
 `?v='+Date.now()` itu **cache-buster**: jsdelivr ngirim `max-age=604800`, jadi HP bisa nyimpen script lama sampai 7 hari. Tanpa buster, push baru nggak kebaca sampai cache expired. Dengan buster, setiap inject selalu ambil file terbaru — dan karena buster-nya dibikin waktu jalan, **bookmark-nya tetap sama selamanya**.
 
-Kalau menu muncul tapi versinya masih `v2` (lihat badge di header), artinya halaman masih nyala script lama — **reload dulu halaman krunker-nya**, baru inject ulang. Guard `window.__KRU` bikin inject kedua jadi no-op, jadi script lama nggak bisa ditimpa selama satu sesi.
+Kalau menu muncul tapi versinya bukan `v4` (lihat badge di header), artinya halaman masih nyala script lama — **reload dulu halaman krunker-nya**, baru inject ulang. Guard `window.__KRU` bikin inject kedua jadi no-op, jadi script lama nggak bisa ditimpa selama satu sesi.
 
 Pakai **Firefox Android** (Chrome Android tidak bisa ngedit URL bookmark).
+
+## Panel diagnostik
+
+Sudut kanan-atas ada baris kecil — alat baca, bukan bagian menu:
+
+```
+v4 m1 g1 t12 f3 e0 | kru-t | <pesan error terakhir>
+```
+
+| Field | Arti |
+|---|---|
+| `v4` | versi build yang sedang jalan |
+| `m1` | `1` = menu ada di halaman, `0` = build gagal pasang menu |
+| `g1` | `1` = guard window-capture terpasang |
+| `t` | event yang **masuk** ke area menu |
+| `f` | event yang **diteruskan** ke tombol |
+| `e` | runtime error milik cheat sendiri |
+| ketiga kolom | elemen yang benar-benar menempati titik pusat menu |
+
+Cara baca saat tombol tidak bisa dipencet:
+
+- **`t` tidak naik** saat tap → event tidak pernah sampai. Elemen di kolom ketiga itulah yang menutupi.
+- **`t` naik tapi `f` diam** → event sampai tapi tidak ada `onclick` cocok (menu belum ter-wire atau `kruGameSwallow` menahan).
+- **`m0`** atau **`e > 0`** → kirim baris ini, lengkap dengan pesan errornya.
 
 ## Fitur
 
@@ -59,6 +83,13 @@ Regresi setelah v2.2: **tombol mati total di in-game** (tak bisa dipencet, tak b
 
 Tambahan: interval rebuild menu (1,5 dtk) sekarang cek `menuEl` masih elemen yang sama, re-assert `z-index`/`pointer-events`, dan pindahin menu ke atas kalau ada sibling dengan `z-index >= 2147483647`. `kru-min` juga di-guard biar `wireMenu` nggak nge-throw kalau tombolnya belum ada.
 
+## v4 changelog
+
+- **Panel diagnostik on-screen** (`#kru-dbg`, sudut kanan atas, `pointer-events:none`, `z-index:2147483647`): `v` versi · `m` menu ada · `g` guard terpasang · `t` event masuk · `f` event diteruskan · `e` error cheat · elemen penutup titik pusat menu · pesan error terakhir. Dipanggil `safe()` di boot + tiap 700 ms, jadi tetap terbaca walau menu rusak.
+- **Counter di `kruGuard`**: `K.dbg.t++` setelah `kruXY()` (titik tap di dalam area menu), `K.dbg.f++` tepat sebelum `onclick` dipanggil. Beda `t - f` = event sampai tapi gagal diteruskan.
+- **`window` `error` listener capture di baris paling awal IIFE** — error boot yang meledak sebelum menu sempat dibangun tetap terekam.
+- Badge versi naik jadi **v4** (bukti visual build mana yang jalan di perangkat).
+
 ## Test
 
 ```
@@ -67,7 +98,9 @@ node mock_test.js
 
 39 assertion, 0 fail — cakup: hook render, paket input, filter tim/mati, ESP projection, semua toggle, keyboard, minimize, z-index menu di atas `#mobileUI`, shield gesture, respawn `C.me`, ikatan kamera, normalisasi AimFov, guard re-inject, **guard window-capture (4 event), tembus saat game menelan, tembus saat overlay menutupi, touchstart tanpa `preventDefault`, z-index ESP, ESP host hidup lagi setelah dibuang**.
 
-Browser test (Playwright, chromium, viewport 412×915 `hasTouch`, krunker.io asli): 13/13, 0 `pageerror` — cakup boot, tap minimize, tap toggle, **tap saat overlay `z-index:2147483647` menutupi menu**, **tap saat `controls.enabled=true` (mode game menelan)**.
+Browser test (Playwright, chromium, viewport 412×915 `hasTouch`, krunker.io asli): **11 ok / 0 fail milik cheat** — cakup boot, tap minimize (lipat + buka), tap toggle, **tap saat `#mobileUI` dipaksa `display:block` + `controls.enabled=true`**, **panel diagnostik tampil + counter `t`/`f` naik benar**. Sisa error di log berasal dari game/OneTrust (`WeakMap`, `<svg> attribute width`) dan sudah muncul **sebelum** script diinjeksi.
+
+Diagnostik v4 divalidasi di match asli: `t0 → 12`, `f0 → 3` (tepat = minimize ×2 + toggle ×1).
 
 ## v2 changelog
 
