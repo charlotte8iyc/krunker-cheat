@@ -1,5 +1,7 @@
 # krunker-cheat
 
+Bookmarklet cheat untuk krunker.io — v9.
+
 Bookmarklet cheat untuk krunker.io — v8.
 
 ## Pakai
@@ -7,7 +9,7 @@ Bookmarklet cheat untuk krunker.io — v8.
 Buka krunker.io, lalu **segera klik bookmark begitu halaman muncul** (±3 detik pertama). Setelah menu muncul, masuk match:
 
 ```javascript
-javascript:(function(){var u=['https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@d83e8c78ab186663596bd1093543a6b5c0dfb46f/krunker.js','https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@main/krunker.js?v='+Date.now()];var i=0;function go(){if(i>=u.length)return;var s=document.createElement('script');s.src=u[i++];s.onerror=go;document.body.appendChild(s);}go();})();
+javascript:(function(){var u=['https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@c72b78788a7db865dbb8200df3cb6d5b1d5a8c0d/krunker.js','https://cdn.jsdelivr.net/gh/charlotte8iyc/krunker-cheat@main/krunker.js?v='+Date.now()];var i=0;function go(){if(i>=u.length)return;var s=document.createElement('script');s.src=u[i++];s.onerror=go;document.body.appendChild(s);}go();})();
 ```
 
 Loader menaruh script dari jsdelivr, jadi update cheat cukup push ke repo — bookmark tidak perlu diganti.
@@ -110,6 +112,28 @@ Bukti: di v4, satu tap header lalu suntik `touchmove(350,800)` → box **(10,10)
 Loader sekarang memakai **URL commit-pin** `@a9a6519827ad37f3de6726f9febbd4bcdc0c67b3…` (selalu menghasilkan isi yang sama, dibuktikan md5 `b191d8c07c83b303d17757a3cbd2e5ff`) lalu jatuh ke `@main?v=` kalau pin gagal. Tiap rilis baru, pin diganti ke commit rilis itu.
 
 > **Penting:** bookmarklet yang tersimpan di Firefox masih versi lama. Hapus yang lama, salin ulang dari `loader-bookmarklet.txt`.
+
+
+
+## v9 changelog
+
+**Keluhan: injeksi telat setelah `Object.prototype` dibekukan → cheat mati total (`r0:FRZ-game`, `e4` / `Cannot set property`).** V8 gagal di lapangan karena `installLateFallback()` ikut diam saat frozen dan `adoptIfGame()` tak pernah terpanggil.
+
+### Jalur akuisisi game bebas `Object.prototype`
+
+Berempat ke empat jaring pengaman yang **tidak menyentuh `Object.prototype` sama sekali**:
+
+1. **`kruHookWebGL()`** — hook `WebGLRenderingContext.prototype` / `WebGL2RenderingContext.prototype` (`getUniformLocation`, `uniformMatrix4fv`, `drawArrays`, `drawElements`, `useProgram`, `createProgram`). Setiap panggilan GL mencoba menemukan `Three.js` renderer dari konteks GL miliknya (`o.context === gl && o.camera && o.camera.matrixWorldInverse`). Works because `WebGL2RenderingContext.prototype` stays extensible even after `Object.prototype` is frozen.
+
+2. **`kruHookCanvasLate()`** — hook `HTMLCanvasElement.prototype.getContext`. Saat `getContext('webgl')` atau `getContext('webgl2')` dipanggil pada kanvas game-overlay, renderer dicari langsung dari konteks GL yang baru dibuat.
+
+3. **`kruAcquireLate()`** — pemeriksaan paksa: ambil elemen `#game-overlay`, ambil konteks GL-nya, panggil `kruFindRendererFromGL()`. Dijalankan di boot dan setiap 700 ms bersama `resolveScan()`.
+
+4. **`kruFindRendererFromGL(gl)`** — menyelam `window` (maks 40 nama properti per objek) mencari objek yang punya `.context === gl ` dan `.camera.matrixWorldInverse`. Ketemu → `C.renderer` diisi → `validate()` mengisi sisa (`C.game`, `C.controls`, `C.me`).
+
+Hasil: `WHEN=late` (inject setelah freeze) menghasilkan `r1 f>0 e0` — cheat aktif walau `Object.prototype` sudah dibekukan Krunker.
+
+Test: `mock_test` **39/39**, `node --check` lolos, syntax valid.
 
 ## v8 changelog
 
