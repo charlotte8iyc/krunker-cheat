@@ -1,9 +1,8 @@
 (function () {
   'use strict';
   if (window.__KRU) return;
-  var K = { v: 4 };
+  var K = { v: 5, dbg: { g: 0, t: 0, f: 0, e: 0, last: '' } };
   window.__KRU = K;
-  K.dbg = { g: 0, t: 0, f: 0, e: 0, last: '' };
   window.addEventListener('error', function (ev) {
     try { K.dbg.e++; K.dbg.last = String((ev && ev.message) || 'err').slice(0, 34); } catch (e) { }
   }, true);
@@ -521,7 +520,7 @@
     var h = document.createElement('div');
     h.id = 'kru-head';
     h.style.cssText = 'display:flex;align-items:center;gap:5px;padding:4px 6px;cursor:move;border-bottom:1px solid rgba(255,120,180,.25);border-radius:8px 8px 0 0;background:linear-gradient(180deg,rgba(255,110,170,.2),rgba(255,110,170,.04));';
-    h.innerHTML = '<span style="font-weight:700;font-size:10px;letter-spacing:.2px;">🦊 Yukakoo</span><span id="kru-v" style="opacity:.5;font-size:8px;">v4</span>';
+    h.innerHTML = '<span style="font-weight:700;font-size:10px;letter-spacing:.2px;">🦊 Yukakoo</span><span id="kru-v" style="opacity:.5;font-size:8px;">v5</span>';
     var minBtn = document.createElement('button');
     minBtn.id = 'kru-min';
     minBtn.textContent = '—';
@@ -678,6 +677,43 @@
     for (var i = 0; i < evs.length; i++) window.addEventListener(evs[i], kruGuard, true);
   }
 
+  var kruDrag = false, kruOx = 0, kruOy = 0, kruDragBound = false;
+  function kruDragStart(cx, cy) {
+    if (!menuEl) return;
+    var r = menuEl.getBoundingClientRect();
+    kruOx = cx - r.left; kruOy = cy - r.top; kruDrag = true;
+    menuEl.style.transition = 'none';
+  }
+  function kruDragMove(cx, cy) {
+    if (!kruDrag || !menuEl) return;
+    var x = Math.max(0, Math.min(window.innerWidth - 60, cx - kruOx));
+    var y = Math.max(0, Math.min(window.innerHeight - 24, cy - kruOy));
+    menuEl.style.left = x + 'px'; menuEl.style.top = y + 'px';
+  }
+  function kruDragEnd() { kruDrag = false; }
+  K.getDrag = function () { return kruDrag; };
+  function kruDragBind() {
+    if (kruDragBound) return;
+    kruDragBound = true;
+    window.addEventListener('mousemove', function (e) { kruDragMove(e.clientX, e.clientY); }, true);
+    window.addEventListener('touchmove', function (e) { if (!kruDrag) return; var t = e.touches[0]; if (t) kruDragMove(t.clientX, t.clientY); }, true);
+    window.addEventListener('mouseup', kruDragEnd, true);
+    window.addEventListener('touchend', kruDragEnd, true);
+    window.addEventListener('touchcancel', kruDragEnd, true);
+    window.addEventListener('pointerup', kruDragEnd, true);
+    window.addEventListener('blur', kruDragEnd, true);
+    window.addEventListener('touchstart', function (e) {
+      if (!kruDrag) return;
+      var t = e.target;
+      if (!t || !t.closest || !t.closest('#kru-head')) kruDragEnd();
+    }, true);
+    window.addEventListener('mousedown', function (e) {
+      if (!kruDrag) return;
+      var t = e.target;
+      if (!t || !t.closest || !t.closest('#kru-head')) kruDragEnd();
+    }, true);
+  }
+
   function wireMenu() {
     ['touchstart','touchend','mousedown','mouseup','click','pointerdown','pointerup','contextmenu'].forEach(function (ev) {
       menuEl.addEventListener(ev, function (e) { if (e && e.stopPropagation) e.stopPropagation(); }, false);
@@ -695,25 +731,8 @@
     if (minEl) minEl.onclick = function (e) { e.stopPropagation(); S.min = !S.min; paintMenu(); };
 
     var head = document.getElementById('kru-head');
-    var drag = false, ox = 0, oy = 0;
-    function start(cx, cy) {
-      var r = menuEl.getBoundingClientRect();
-      ox = cx - r.left; oy = cy - r.top; drag = true;
-      menuEl.style.transition = 'none';
-    }
-    function move(cx, cy) {
-      if (!drag) return;
-      var x = Math.max(0, Math.min(window.innerWidth - 60, cx - ox));
-      var y = Math.max(0, Math.min(window.innerHeight - 24, cy - oy));
-      menuEl.style.left = x + 'px'; menuEl.style.top = y + 'px';
-    }
-    function end() { drag = false; }
-    head.addEventListener('mousedown', function (e) { if (e.target.id === 'kru-min') return; start(e.clientX, e.clientY); e.preventDefault(); });
-    document.addEventListener('mousemove', function (e) { move(e.clientX, e.clientY); });
-    document.addEventListener('mouseup', end);
-    head.addEventListener('touchstart', function (e) { if (e.target.id === 'kru-min') return; var t = e.touches[0]; start(t.clientX, t.clientY); }, { passive: true });
-    document.addEventListener('touchmove', function (e) { if (!drag) return; var t = e.touches[0]; move(t.clientX, t.clientY); }, { passive: true });
-    document.addEventListener('touchend', end);
+    head.addEventListener('mousedown', function (e) { if (e.target.id === 'kru-min') return; kruDragStart(e.clientX, e.clientY); e.preventDefault(); });
+    head.addEventListener('touchstart', function (e) { if (e.target.id === 'kru-min') return; var t = e.touches[0]; if (t) kruDragStart(t.clientX, t.clientY); }, { passive: true });
   }
 
   var TOGGLES = ['aimbot', 'autofire', 'espBox', 'espTracer', 'chams', 'wireframe', 'god', 'bhop', 'autorun', 'third'];
@@ -769,6 +788,7 @@
     safe(kruDbgPaint);
     setInterval(function () { safe(validate); safe(refreshStatus); safe(kruDbgPaint); }, 700);
     kruInstallGuard();
+    kruDragBind();
     setInterval(function () {
       var cur = document.getElementById('kru-menu');
       if (!cur || !menuEl || cur !== menuEl || !document.body.contains(menuEl)) { safe(buildMenu); return; }

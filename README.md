@@ -1,6 +1,6 @@
 # krunker-cheat
 
-Bookmarklet cheat untuk krunker.io — v4.
+Bookmarklet cheat untuk krunker.io — v5.
 
 ## Pakai
 
@@ -14,7 +14,7 @@ Loader menaruh script dari jsdelivr, jadi update cheat cukup push ke repo — bo
 
 `?v='+Date.now()` itu **cache-buster**: jsdelivr ngirim `max-age=604800`, jadi HP bisa nyimpen script lama sampai 7 hari. Tanpa buster, push baru nggak kebaca sampai cache expired. Dengan buster, setiap inject selalu ambil file terbaru — dan karena buster-nya dibikin waktu jalan, **bookmark-nya tetap sama selamanya**.
 
-Kalau menu muncul tapi versinya bukan `v4` (lihat badge di header), artinya halaman masih nyala script lama — **reload dulu halaman krunker-nya**, baru inject ulang. Guard `window.__KRU` bikin inject kedua jadi no-op, jadi script lama nggak bisa ditimpa selama satu sesi.
+Kalau menu muncul tapi versinya bukan `v5` (lihat badge di header), artinya halaman masih nyala script lama — **reload dulu halaman krunker-nya**, baru inject ulang. Guard `window.__KRU` bikin inject kedua jadi no-op, jadi script lama nggak bisa ditimpa selama satu sesi.
 
 Pakai **Firefox Android** (Chrome Android tidak bisa ngedit URL bookmark).
 
@@ -23,12 +23,12 @@ Pakai **Firefox Android** (Chrome Android tidak bisa ngedit URL bookmark).
 Sudut kanan-atas ada baris kecil — alat baca, bukan bagian menu:
 
 ```
-v4 m1 g1 t12 f3 e0 | kru-t | <pesan error terakhir>
+v5 m1 g1 t12 f3 e0 | kru-t | <pesan error terakhir>
 ```
 
 | Field | Arti |
 |---|---|
-| `v4` | versi build yang sedang jalan |
+| `v5` | versi build yang sedang jalan |
 | `m1` | `1` = menu ada di halaman, `0` = build gagal pasang menu |
 | `g1` | `1` = guard window-capture terpasang |
 | `t` | event yang **masuk** ke area menu |
@@ -90,6 +90,20 @@ Tambahan: interval rebuild menu (1,5 dtk) sekarang cek `menuEl` masih elemen yan
 - **`window` `error` listener capture di baris paling awal IIFE** — error boot yang meledak sebelum menu sempat dibangun tetap terekam.
 - Badge versi naik jadi **v4** (bukti visual build mana yang jalan di perangkat).
 
+## v5 changelog
+
+**Box cheat melompat ke titik tap di layar mana pun** — patokannya header `Yukakoo`. Akar: shield menu (`stopPropagation` di kontainer, dibuat biar tap nggak bocor ke game) **juga memakan `touchend`/`mouseup` yang kita butuh sendiri**. Urutan di HP: tekan header → `touchstart` jalan (`drag=true`) → lepas → `touchend`/`mouseup` targetnya header, naik ke kontainer, **distop shield, `document` nggak pernah dapet → `end()` tak pernah jalan → `drag` nyangkut `true` selamanya**. Begitu jari goyang dikit pas tap berikutnya, `touchmove` masuk → `move()` → box lompat persis ke titik jari. Headless `tap()` nggak pernah gerakin `touchmove`, makanya test lama selalu lolos.
+
+Perbaikan:
+
+1. **Drag dipindah ke modul + `window` capture.** `mouseup`/`touchend`/`touchcancel`/`pointerup`/`blur` diikat ke `window` **capture** — jalan **sebelum** shield kontainer, jadi `kruDragEnd()` selalu kepanggil. `kruDragBound` bikin ikatan cuma sekali walau menu di-rebuild.
+2. **Sapuan pengaman:** `touchstart`/`mousedown` yang targetnya **di luar `#kru-head`** langsung `kruDragEnd()` — drag cuma boleh hidup selama jari menempel di header.
+3. **`mousemove`/`touchmove` juga di `window` capture** biar nggak bisa distop handler game.
+4. **`K.getDrag()`** dibuka buat test — status drag bisa diukur langsung, bukan ditebak dari gerak box.
+5. Badge **v5**.
+
+Bukti: di v4, satu tap header lalu suntik `touchmove(350,800)` → box **(10,10) → (273,787)**. Di v5: `getDrag()` = `false` setelah tap header, box tetap **(10,10)** setelah dua suntik, drag dari header tetap jalan → **(223,587)**.
+
 ## Test
 
 ```
@@ -101,6 +115,10 @@ node mock_test.js
 Browser test (Playwright, chromium, viewport 412×915 `hasTouch`, krunker.io asli): **11 ok / 0 fail milik cheat** — cakup boot, tap minimize (lipat + buka), tap toggle, **tap saat `#mobileUI` dipaksa `display:block` + `controls.enabled=true`**, **panel diagnostik tampil + counter `t`/`f` naik benar**. Sisa error di log berasal dari game/OneTrust (`WeakMap`, `<svg> attribute width`) dan sudah muncul **sebelum** script diinjeksi.
 
 Diagnostik v4 divalidasi di match asli: `t0 → 12`, `f0 → 3` (tepat = minimize ×2 + toggle ×1).
+
+Tes regresi teleport box (`diag9.js`, Playwright + CDP `Input.dispatchTouchEvent`): **7 ok / 0 fail milik cheat** — tap header lalu suntik `touchmove`/`mousemove` sintetis ke titik jauh, box wajib diam; `K.getDrag()` wajib `false` setelah lepas; drag dari header wajib tetap jalan. **A/B**: build v4 lama gagal di assertion teleport (box pindah ke 273,787), build v5 lolos semua.
+
+Sisa `pageerror` di log browser (`WeakMap`, `<svg> attribute width`) berasal dari game/OneTrust dan sudah muncul **sebelum** script diinjeksi — bukan milik cheat.
 
 ## v2 changelog
 
