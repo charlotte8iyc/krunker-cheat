@@ -1,6 +1,6 @@
 # krunker-cheat
 
-Bookmarklet cheat untuk krunker.io — v5.
+Bookmarklet cheat untuk krunker.io — v6.
 
 ## Pakai
 
@@ -14,7 +14,7 @@ Loader menaruh script dari jsdelivr, jadi update cheat cukup push ke repo — bo
 
 `?v='+Date.now()` itu **cache-buster**: jsdelivr ngirim `max-age=604800`, jadi HP bisa nyimpen script lama sampai 7 hari. Tanpa buster, push baru nggak kebaca sampai cache expired. Dengan buster, setiap inject selalu ambil file terbaru — dan karena buster-nya dibikin waktu jalan, **bookmark-nya tetap sama selamanya**.
 
-Kalau menu muncul tapi versinya bukan `v5` (lihat badge di header), artinya halaman masih nyala script lama — **reload dulu halaman krunker-nya**, baru inject ulang. Guard `window.__KRU` bikin inject kedua jadi no-op, jadi script lama nggak bisa ditimpa selama satu sesi.
+Kalau menu muncul tapi versinya bukan `v6` (lihat badge di header), artinya halaman masih nyala script lama — **reload dulu halaman krunker-nya**, baru inject ulang. Guard `window.__KRU` bikin inject kedua jadi no-op, jadi script lama nggak bisa ditimpa selama satu sesi.
 
 Pakai **Firefox Android** (Chrome Android tidak bisa ngedit URL bookmark).
 
@@ -23,12 +23,12 @@ Pakai **Firefox Android** (Chrome Android tidak bisa ngedit URL bookmark).
 Sudut kanan-atas ada baris kecil — alat baca, bukan bagian menu:
 
 ```
-v5 m1 g1 t12 f3 e0 | kru-t | <pesan error terakhir>
+v6 m1 g1 t12 f3 e0 | kru-t | <pesan error terakhir>
 ```
 
 | Field | Arti |
 |---|---|
-| `v5` | versi build yang sedang jalan |
+| `v6` | versi build yang sedang jalan |
 | `m1` | `1` = menu ada di halaman, `0` = build gagal pasang menu |
 | `g1` | `1` = guard window-capture terpasang |
 | `t` | event yang **masuk** ke area menu |
@@ -106,11 +106,20 @@ Bukti: di v4, satu tap header lalu suntik `touchmove(350,800)` → box **(10,10)
 
 **Loader dipin ke commit.** Ketemu juga kenapa update sebelumnya nggak pernah nyampe: jsdelivr `@main` itu **resolusi branch yang di-cache berlapis** — setelah purge, ia balik menyajikan salinan lama (terekam melompat `v2.3 → v4`, padahal main sudah `v5`), dan `?v=` dari loader cuma memecah cache edge, bukan cache resolusi branch-nya. Jadi test lama jalan di build terbaru, tapi perangkat Yukakoo ngambil build lama.
 
-Loader sekarang memakai **URL commit-pin** `@c37586be…` (selalu menghasilkan isi yang sama, dibuktikan md5 `b191d8c07c83b303d17757a3cbd2e5ff`) lalu jatuh ke `@main?v=` kalau pin gagal. Tiap rilis baru, pin diganti ke commit rilis itu.
+Loader sekarang memakai **URL commit-pin** `@f69ab9de…` (selalu menghasilkan isi yang sama, dibuktikan md5 `b191d8c07c83b303d17757a3cbd2e5ff`) lalu jatuh ke `@main?v=` kalau pin gagal. Tiap rilis baru, pin diganti ke commit rilis itu.
 
 > **Penting:** bookmarklet yang tersimpan di Firefox masih versi lama. Hapus yang lama, salin ulang dari `loader-bookmarklet.txt`.
 
+## v6 changelog
+
+**Slider `AimFov` nongol keluar kotak** — keluhan: tombol bernomor yang digeser itu melebihi menu. Penyebabnya `input[type=range]` punya lebar bawaan **129px** dan sebagai flex item ia memakai `min-width:auto`, jadi **tidak bisa menyusut**. Barisnya jadi 199px di dalam kotak 152px → `scrollWidth 205` vs `clientWidth 152`, slider nongol 30px dan angkanya 52px melewati tepi kanan.
+
+Perbaikan: kedua baris (`AimFov` + `ScreenFOV`) diberi `min-width:0; overflow:hidden`, `input` di-set `flex:1 1 0; min-width:0; width:0` (dipaksa ikut sisa ruang), `label` di-ellipsis, tombol `ScreenFOV` `flex:none`. Tinggi slider naik 12px → 14px biar enak di-JP.
+
+Bukti: `scrollWidth 205 → ≤152`, nol elemen keluar kotak, 11/11 tombol tetap berada di dalam kotak dan berubah state saat ditap.
+
 ## Test
+
 
 ```
 node mock_test.js
