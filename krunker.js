@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   if (window.__KRU) return;
-  var K = { v: 7, dbg: { g: 0, t: 0, f: 0, e: 0, last: '' } };
+  var K = { v: 8, dbg: { g: 0, t: 0, f: 0, e: 0, last: '' } };
   window.__KRU = K;
   window.addEventListener('error', function (ev) {
     try { K.dbg.e++; K.dbg.last = String((ev && ev.message) || 'err').slice(0, 34); } catch (e) { }
@@ -38,16 +38,31 @@
     return out;
   }
 
+  var KRU_STORES = {};
   function defineProto(name, onSet) {
     safe(function () {
       var key = '__kru_' + name;
+      var st = null;
+      try { st = (typeof WeakMap === 'function') ? (KRU_STORES[name] || (KRU_STORES[name] = new WeakMap())) : null; } catch (e) { }
       Object.defineProperty(Object.prototype, name, {
         configurable: true,
         enumerable: false,
-        get: function () { return this[key]; },
+        get: function () {
+          try { if (st && st.has(this)) return st.get(this); } catch (e) { }
+          return this[key];
+        },
         set: function (v) {
+          try { if (st) st.set(this, v); } catch (e) { }
           safe(function () { Object.defineProperty(this, key, { value: v, writable: true, configurable: true, enumerable: false }); }.bind(this));
           safe(function () { onSet.call(this, v); }.bind(this));
+          safe(function () {
+            var s = this;
+            if (s && s.players && s.players.list && typeof s.players.list.length === 'number') {
+              C.gameCand = s;
+              if (!C.game) C.game = s;
+              validate();
+            }
+          }.bind(this));
         }
       });
     });
@@ -92,8 +107,33 @@
     validate();
   }
 
+  function hydrate() {
+    var g = C.game;
+    if (!g) return;
+    var ks;
+    try { ks = Object.getOwnPropertyNames(g); } catch (e) { return; }
+    if (!ks || ks.length > 400) return;
+    for (var i = 0; i < ks.length; i++) {
+      var v;
+      try { v = g[ks[i]]; } catch (e) { continue; }
+      if (!v || (typeof v !== 'object' && typeof v !== 'function')) continue;
+      if (!C.renderer && v.camera && v.camera.matrixWorldInverse) C.renderer = v;
+      if (!C.controls && (v.keys || v.binds)) C.controls = v;
+      if (C.renderer && C.controls) break;
+    }
+  }
+
   function validate() {
-    if (C.game && !(C.game.players && typeof C.game.players.list !== 'undefined')) C.game = null;
+    if (C.game && !(C.game.players && typeof C.game.players.list !== 'undefined')) {
+      try {
+        K.dbg.nullWhy = { had: !!C.gameCand, same: C.game === C.gameCand,
+          pl: (function () { try { return typeof C.game.players; } catch (e) { return 'throw'; } })(),
+          lst: (function () { try { var p = C.game.players; return p ? typeof p.list : 'noplayer'; } catch (e) { return 'throw'; } })(),
+          own: (function () { try { return Object.getOwnPropertyNames(C.game).slice(0, 8).join(','); } catch (e) { return 'throw'; } })(),
+          wm: (function () { try { return KRU_STORES.players ? KRU_STORES.players.has(C.game) : 'nostore'; } catch (e) { return 'throw'; } })() };
+      } catch (e) { }
+      C.game = null;
+    }
     if (!C.game && C.gameCand && C.gameCand.players && typeof C.gameCand.players.list !== 'undefined') C.game = C.gameCand;
     if (C.game) {
       var l = plist();
@@ -107,8 +147,36 @@
     if ((!C.controls || !(C.controls.keys || C.controls.binds)) && C.game && C.game.controls && (C.game.controls.keys || C.game.controls.binds)) C.controls = C.game.controls;
     if ((!C.controls || !(C.controls.keys || C.controls.binds)) && C.controlsCand && (C.controlsCand.keys || C.controlsCand.binds)) C.controls = C.controlsCand;
     if ((!C.renderer || !C.renderer.camera) && C.rendererCand && C.rendererCand.camera) C.renderer = C.rendererCand;
+    if (C.game && (!C.renderer || !C.controls)) safe(hydrate);
     if (C.game && C.me && C.renderer && !C.ready) { C.ready = true; ensureProcHook(); refreshStatus(); }
     if (C.game && !C.ready) refreshStatus();
+  }
+
+  function adoptIfGame(o) {
+    try {
+      if (o && typeof o === 'object' && o.players && o.players.list && typeof o.players.list.length === 'number') {
+        C.gameCand = o;
+        if (!C.game) C.game = o;
+        validate();
+      }
+    } catch (e) { }
+  }
+
+  function installLateFallback() {
+    var names = ['hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable', 'toLocaleString', 'toString', 'valueOf'];
+    for (var i = 0; i < names.length; i++) {
+      (function (n) {
+        var fn;
+        try { fn = Object.prototype[n]; } catch (e) { return; }
+        if (typeof fn !== 'function') return;
+        try {
+          Object.defineProperty(Object.prototype, n, {
+            value: function () { adoptIfGame(this); return fn.apply(this, arguments); },
+            writable: true, configurable: true, enumerable: false
+          });
+        } catch (e) { }
+      })(names[i]);
+    }
   }
 
   function installHooks() {
@@ -120,11 +188,12 @@
       }
     });
     defineProto('players', function (v) {
-      if (v && typeof v.list !== 'undefined' && Array.isArray(v.list) && v.list.length >= 0) C.gameCand = this;
+      if (v && typeof v.list !== 'undefined' && v.list && typeof v.list.length === 'number') C.gameCand = this;
       validate();
     });
     defineProto('renderer', function (v) { if (v && v.camera) { C.rendererCand = v; validate(); } });
     defineProto('controls', function (v) { if (v && (v.keys || v.binds)) { C.controlsCand = v; validate(); } });
+    safe(installLateFallback);
     safe(function () {
       var g = document.getElementById('game-overlay');
       if (g) { C.overlay = C.overlay || {}; C.ctx = C.ctx || g.getContext('2d'); }
@@ -553,7 +622,8 @@
     var el = document.getElementById('kru-status');
     if (!el) return;
     var l = plist();
-    el.textContent = 'game:' + (C.game ? 'OK' : 'wait') + ' · me:' + (C.me ? 'OK' : 'wait') + ' · render:' + (C.renderer ? 'OK' : 'wait') + ' · ctrls:' + (C.controls ? 'OK' : 'wait') + ' · players:' + (l ? l.length : 0) + ' · scan:' + (C.scanHit ? 'hit' : (C.scanN || 0));
+    var protoOK = true; try { protoOK = Object.isExtensible(Object.prototype); } catch (e) { protoOK = true; }
+    el.textContent = 'proto:' + (protoOK ? 'OK' : 'FROZEN') + ' · game:' + (C.game ? 'OK' : 'wait') + ' · me:' + (C.me ? 'OK' : 'wait') + ' · render:' + (C.renderer ? 'OK' : 'wait') + ' · ctrls:' + (C.controls ? 'OK' : 'wait') + ' · players:' + (l ? l.length : 0) + ' · scan:' + (C.scanHit ? 'hit' : (C.scanN || 0));
   }
 
   var menuEl = null, bodyEl = null;
@@ -567,7 +637,7 @@
     var h = document.createElement('div');
     h.id = 'kru-head';
     h.style.cssText = 'display:flex;align-items:center;gap:5px;padding:4px 6px;cursor:move;border-bottom:1px solid rgba(255,120,180,.25);border-radius:8px 8px 0 0;background:linear-gradient(180deg,rgba(255,110,170,.2),rgba(255,110,170,.04));';
-    h.innerHTML = '<span style="font-weight:700;font-size:10px;letter-spacing:.2px;">🦊 Yukakoo</span><span id="kru-v" style="opacity:.5;font-size:8px;">v7</span>';
+    h.innerHTML = '<span style="font-weight:700;font-size:10px;letter-spacing:.2px;">🦊 Yukakoo</span><span id="kru-v" style="opacity:.5;font-size:8px;">v8</span>';
     var minBtn = document.createElement('button');
     minBtn.id = 'kru-min';
     minBtn.textContent = '—';
@@ -819,7 +889,7 @@
         } else hit = 'hidden';
       }
       var line = 'v' + K.v + ' m' + (m ? 1 : 0) + ' g' + d.g + ' t' + d.t +
-        ' f' + d.f + ' e' + d.e + ' r' + (C.ready ? 1 : 0) + ' | ' + hit + (d.last ? ' | ' + d.last : '');
+        ' f' + d.f + ' e' + d.e + ' ' + (C.ready ? 'r1' : 'r0:' + ((function(){ try { return Object.isExtensible(Object.prototype); } catch (e) { return true; } })() ? '' : 'FRZ-') + (!C.game ? 'game' : (!C.me ? 'me' : (!C.renderer ? 'render' : 'ctrls')))) + ' | ' + hit + (d.last ? ' | ' + d.last : '');
       if (el.textContent !== line) el.textContent = line;
     } catch (e) { }
   }
