@@ -417,12 +417,11 @@
 
   var espBox = null, espLine = null, espBuilt = false;
   function ensureEsp() {
-    if (espBuilt) return;
     var host = document.getElementById('kru-esp');
-    if (!host) {
+    if (!host || !document.body.contains(host)) {
       host = document.createElement('div');
       host.id = 'kru-esp';
-      host.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:999990;overflow:hidden;';
+      host.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:2147483646;overflow:hidden;';
       (document.body || document.documentElement).appendChild(host);
     }
     espBox = host;
@@ -610,6 +609,68 @@
 
   function toggle(k) { S[k] = !S[k]; paintMenu(); }
 
+  var kruGuardOn = false;
+  function kruXY(ev) {
+    if (ev && typeof ev.clientX === 'number' && (ev.clientX || ev.clientY)) return [ev.clientX, ev.clientY];
+    var t = ev && ((ev.touches && ev.touches[0]) || (ev.changedTouches && ev.changedTouches[0]));
+    return t ? [t.clientX, t.clientY] : null;
+  }
+  function kruPick(x, y) {
+    if (!menuEl || !document.body.contains(menuEl)) return null;
+    var r = menuEl.getBoundingClientRect();
+    if (x < r.left || x > r.right || y < r.top || y > r.bottom) return null;
+    var all = menuEl.querySelectorAll('*');
+    var best = null, bestA = Infinity;
+    for (var i = 0; i < all.length; i++) {
+      var b = all[i].getBoundingClientRect();
+      if (!b.width || !b.height) continue;
+      if (x < b.left || x > b.right || y < b.top || y > b.bottom) continue;
+      var a = b.width * b.height;
+      if (a < bestA) { bestA = a; best = all[i]; }
+    }
+    return best || menuEl;
+  }
+  function kruGameSwallow() {
+    try {
+      var c = C.controls;
+      if (!c || !c.enabled) return false;
+      if (window.locked || window.noMouseInp) return false;
+      return true;
+    } catch (e) { return false; }
+  }
+  function kruGuard(ev) {
+    try {
+      if (!menuEl || !document.body.contains(menuEl)) return;
+      var xy = kruXY(ev);
+      if (!xy) return;
+      var el = kruPick(xy[0], xy[1]);
+      if (!el) return;
+      var ours = !!(ev.target && ev.target.closest && ev.target.closest('#kru-menu'));
+      if (ours && !kruGameSwallow()) return;
+      ev.stopPropagation();
+      if (ev.type !== 'click') return;
+      var host = null, fn = null, cur = el;
+      while (cur) {
+        if (typeof cur.onclick === 'function') { host = cur; fn = cur.onclick; break; }
+        if (cur === menuEl) break;
+        cur = cur.parentNode;
+      }
+      if (!fn) return;
+      fn.call(host, {
+        type: 'click', clientX: xy[0], clientY: xy[1], button: 0, buttons: 1,
+        detail: 1, isTrusted: false, view: window, target: host, currentTarget: host,
+        stopPropagation: function () { }, stopImmediatePropagation: function () { },
+        preventDefault: function () { }, preventDefault: function () { }
+      });
+    } catch (e) { }
+  }
+  function kruInstallGuard() {
+    if (kruGuardOn) return;
+    kruGuardOn = true;
+    var evs = ['pointerdown', 'mousedown', 'touchstart', 'click'];
+    for (var i = 0; i < evs.length; i++) window.addEventListener(evs[i], kruGuard, true);
+  }
+
   function wireMenu() {
     ['touchstart','touchend','mousedown','mouseup','click','pointerdown','pointerup','contextmenu'].forEach(function (ev) {
       menuEl.addEventListener(ev, function (e) { if (e && e.stopPropagation) e.stopPropagation(); }, false);
@@ -623,7 +684,8 @@
     }
     var f = document.getElementById('kru-fovcycle');
     if (f) f.onclick = function () { S.fovIdx = (S.fovIdx + 1) % FOVS.length; paintMenu(); };
-    document.getElementById('kru-min').onclick = function (e) { e.stopPropagation(); S.min = !S.min; paintMenu(); };
+    var minEl = document.getElementById('kru-min');
+    if (minEl) minEl.onclick = function (e) { e.stopPropagation(); S.min = !S.min; paintMenu(); };
 
     var head = document.getElementById('kru-head');
     var drag = false, ox = 0, oy = 0;
@@ -667,7 +729,24 @@
     safe(buildMenu);
     safe(refreshStatus);
     setInterval(function () { safe(validate); safe(refreshStatus); }, 700);
-    setInterval(function () { if (document.getElementById('kru-menu')) return; safe(buildMenu); }, 2000);
+    kruInstallGuard();
+    setInterval(function () {
+      var cur = document.getElementById('kru-menu');
+      if (!cur || !menuEl || cur !== menuEl || !document.body.contains(menuEl)) { safe(buildMenu); return; }
+      cur.style.zIndex = '2147483647';
+      cur.style.pointerEvents = 'auto';
+      var kids = document.body.children, idx = -1, i;
+      for (i = 0; i < kids.length; i++) if (kids[i] === cur) { idx = i; break; }
+      if (idx >= 0 && idx < kids.length - 1) {
+        for (i = idx + 1; i < kids.length; i++) {
+          var st = window.getComputedStyle(kids[i]);
+          if (st.display !== 'none' && st.visibility !== 'hidden' && (parseInt(st.zIndex, 10) || 0) >= 2147483647) {
+            document.body.appendChild(cur);
+            break;
+          }
+        }
+      }
+    }, 1500);
     var last = 0;
     function loop(ts) {
       if (ts - last > 33) { last = ts; if (C.ready) safe(frame); }

@@ -1,6 +1,6 @@
 # krunker-cheat
 
-Bookmarklet cheat untuk krunker.io — v2.2.
+Bookmarklet cheat untuk krunker.io — v2.3.
 
 ## Pakai
 
@@ -45,13 +45,25 @@ Pakai **Firefox Android** (Chrome Android tidak bisa ngedit URL bookmark).
 - Guard tambahan: `found !== C.me` (target nol), `isFinite(xDire)` (sudut NaN bikin arah ngaco), cek `pchObjc.rotation` sebelum ditimpa.
 - `validate()` sekarang re-run tiap frame (bukan sekali doang).
 
+## v2.3 changelog
+
+Regresi setelah v2.2: **tombol mati total di in-game** (tak bisa dipencet, tak bisa minimize) dan **ESP tak kelihatan**. Tiga akar:
+
+1. **Game menelan event di `document` capture.** Handler game jalan saat `controls.enabled && !window.locked` — kondisi persis in-game pas menu ESC kebuka. `stopPropagation()` di `document` capture bikin event **tidak pernah sampai ke menu** (lobby `controls.enabled=false`, makanya dulu cuma in-game yang mati). Sekarang ada **guard di `window` capture** (`pointerdown/mousedown/touchstart/click`) — `window` capture jalan **sebelum** `document` capture, jadi event keburu distop + tombol dipanggil langsung lewat `onclick`, bukan `dispatchEvent` (yang bikin rekursi tak hingga karena event baru ikut kena guard yang sama).
+2. **Guard juga nangani overlay di atas menu.** Kalau `elementFromPoint` bukan elemen kita (`target` di luar `#kru-menu`), event diteruskan ke elemen menu terkecil yang memuat titik tap. Kalau `target` masih milik kita dan game **tidak** menelan, guard diam — jalur alami dipakai, jadi drag header + slider FOV tetap jalan normal.
+3. **ESP `z-index:9999990` < `#mobileUI` `9999999`** → ESP tertutup selamanya di in-game. Naik jadi `2147483646`. `ensureEsp()` juga berhenti nge-cache `espBuilt` — kalau game buang host-nya, sekarang dibikin ulang (dulu `espBuilt=true` bikin ESP mati permanen setelah UI rebuild).
+
+Tambahan: interval rebuild menu (1,5 dtk) sekarang cek `menuEl` masih elemen yang sama, re-assert `z-index`/`pointer-events`, dan pindahin menu ke atas kalau ada sibling dengan `z-index >= 2147483647`. `kru-min` juga di-guard biar `wireMenu` nggak nge-throw kalau tombolnya belum ada.
+
 ## Test
 
 ```
 node mock_test.js
 ```
 
-33 assertion, 0 fail — cakup: hook render, paket input, filter tim/mati, ESP projection, semua toggle, keyboard, minimize, z-index menu di atas `#mobileUI`, shield gesture, respawn `C.me`, ikatan kamera, normalisasi AimFov, guard re-inject.
+39 assertion, 0 fail — cakup: hook render, paket input, filter tim/mati, ESP projection, semua toggle, keyboard, minimize, z-index menu di atas `#mobileUI`, shield gesture, respawn `C.me`, ikatan kamera, normalisasi AimFov, guard re-inject, **guard window-capture (4 event), tembus saat game menelan, tembus saat overlay menutupi, touchstart tanpa `preventDefault`, z-index ESP, ESP host hidup lagi setelah dibuang**.
+
+Browser test (Playwright, chromium, viewport 412×915 `hasTouch`, krunker.io asli): 13/13, 0 `pageerror` — cakup boot, tap minimize, tap toggle, **tap saat overlay `z-index:2147483647` menutupi menu**, **tap saat `controls.enabled=true` (mode game menelan)**.
 
 ## v2 changelog
 
