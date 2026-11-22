@@ -39,33 +39,74 @@
   }
 
   var KRU_STORES = {};
+  var KRU_DEFINE_FAILED = {};
   function defineProto(name, onSet) {
     safe(function () {
       var key = '__kru_' + name;
       var st = null;
       try { st = (typeof WeakMap === 'function') ? (KRU_STORES[name] || (KRU_STORES[name] = new WeakMap())) : null; } catch (e) { }
-      Object.defineProperty(Object.prototype, name, {
-        configurable: true,
-        enumerable: false,
-        get: function () {
-          try { if (st && st.has(this)) return st.get(this); } catch (e) { }
-          return this[key];
-        },
-        set: function (v) {
-          try { if (st) st.set(this, v); } catch (e) { }
-          safe(function () { Object.defineProperty(this, key, { value: v, writable: true, configurable: true, enumerable: false }); }.bind(this));
-          safe(function () { onSet.call(this, v); }.bind(this));
-          safe(function () {
-            var s = this;
-            if (s && s.players && s.players.list && typeof s.players.list.length === 'number') {
-              C.gameCand = s;
-              if (!C.game) C.game = s;
-              validate();
-            }
-          }.bind(this));
-        }
-      });
+      try {
+        Object.defineProperty(Object.prototype, name, {
+          configurable: true,
+          enumerable: false,
+          get: function () {
+            try { if (st && st.has(this)) return st.get(this); } catch (e) { }
+            return this[key];
+          },
+          set: function (v) {
+            try { if (st) st.set(this, v); } catch (e) { }
+            safe(function () { Object.defineProperty(this, key, { value: v, writable: true, configurable: true, enumerable: false }); }.bind(this));
+            safe(function () { onSet.call(this, v); }.bind(this));
+            safe(function () {
+              var s = this;
+              if (s && s.players && s.players.list && typeof s.players.list.length === 'number') {
+                C.gameCand = s;
+                if (!C.game) C.game = s;
+                validate();
+              }
+            }.bind(this));
+          }
+        });
+        delete KRU_DEFINE_FAILED[name];
+      } catch (e) {
+        KRU_DEFINE_FAILED[name] = true;
+      }
     });
+  }
+
+  // Fallback adoption when Object.prototype is frozen and defineProto could not install setters.
+  function kruAdoptFromWindow() {
+    if (C.ready) return;
+    try {
+      var names = Object.getOwnPropertyNames(window);
+      for (var i = 0; i < names.length; i++) {
+        try { var o = window[names[i]]; } catch (e) { continue; }
+        if (!o || (typeof o !== 'object' && typeof o !== 'function')) continue;
+        if (o === window || o.nodeType) continue;
+        safe(function () {
+          if (!C.game && o.players && o.players.list && typeof o.players.list.length === 'number') {
+            C.gameCand = o;
+            if (!C.game) C.game = o;
+            validate();
+          }
+          if (!C.controls && o.keys && (o.binds || o.object)) {
+            C.controlsCand = o;
+            if (!C.controls) C.controls = o;
+            validate();
+          }
+          if (!C.renderer && o.camera && o.camera.matrixWorldInverse && o.camera.projectionMatrix) {
+            C.rendererCand = o;
+            if (!C.renderer) C.renderer = o;
+            validate();
+          }
+          if (!C.me && o.isYou && typeof o.x === 'number' && typeof o.health === 'number') {
+            if (!C.me) C.me = o;
+            validate();
+          }
+        });
+        if (C.ready) break;
+      }
+    } catch (e) { }
   }
 
   function hookRenderOn(obj) {
@@ -652,6 +693,7 @@ function kruHookCanvasLate() {
 
 function kruAcquireLate() {
   if (C.ready) return;
+  safe(kruAdoptFromWindow);
   safe(kruHookWebGL);
   safe(kruHookCanvasLate);
   try {
@@ -1001,7 +1043,7 @@ function kruAcquireLate() {
     safe(kruDbgMount);
     safe(refreshStatus);
     safe(kruDbgPaint);
-    setInterval(function () { safe(resolveScan); safe(kruAcquireLate); safe(validate); safe(refreshStatus); safe(kruDbgPaint); }, 700);
+    setInterval(function () { safe(resolveScan); safe(kruAcquireLate); safe(kruAdoptFromWindow); safe(validate); safe(refreshStatus); safe(kruDbgPaint); }, 700);
     kruInstallGuard();
     kruDragBind();
     setInterval(function () {
