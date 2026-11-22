@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   if (window.__KRU) return;
-  var K = { v: 8, dbg: { g: 0, t: 0, f: 0, e: 0, last: '' } };
+  var K = { v: 9, dbg: { g: 0, t: 0, f: 0, e: 0, last: '' } };
   window.__KRU = K;
   window.addEventListener('error', function (ev) {
     try { K.dbg.e++; K.dbg.last = String((ev && ev.message) || 'err').slice(0, 34); } catch (e) { }
@@ -571,6 +571,102 @@
     if (espBox) espBox.innerHTML = svg + boxes.join('');
   }
 
+function kruFindRendererFromGL(gl) {
+  try {
+    if (!gl) return;
+    if (C.renderer && C.renderer.camera) return;
+    var names = Object.getOwnPropertyNames(window);
+    for (var i = 0; i < names.length; i++) {
+      try {
+        var o = window[names[i]];
+        if (!o || (typeof o !== 'object' && typeof o !== 'function')) continue;
+        if (o === window || o.nodeType) continue;
+        if (o.context === gl && o.camera && o.camera.matrixWorldInverse && o.camera.projectionMatrix) {
+          if (!C.renderer) { C.renderer = o; validate(); return; }
+        }
+        var ks = Object.getOwnPropertyNames(o);
+        for (var j = 0; j < Math.min(ks.length, 40); j++) {
+          try {
+            var v = o[ks[j]];
+            if (v && v !== o && v.context === gl && v.camera && v.camera.matrixWorldInverse) {
+              if (!C.renderer) { C.renderer = v; validate(); return; }
+            }
+          } catch (e) { }
+        }
+      } catch (e) { }
+    }
+  } catch (e) { }
+}
+
+function kruHookWebGL() {
+  try {
+    var protos = [];
+    if (typeof WebGLRenderingContext !== 'undefined') protos.push(WebGLRenderingContext.prototype);
+    if (typeof WebGL2RenderingContext !== 'undefined') protos.push(WebGL2RenderingContext.prototype);
+    for (var pi = 0; pi < protos.length; pi++) {
+      var p = protos[pi];
+      if (!p || p.__kruGLHooked) continue;
+      var names = ['getUniformLocation','uniformMatrix4fv','drawArrays','drawElements','useProgram','createProgram'];
+      for (var hi = 0; hi < names.length; hi++) {
+        (function(proto, name){
+          var orig = proto[name];
+          if (!orig || orig.__kru) return;
+          proto[name] = function() {
+            try {
+              if (!C.renderer || !C.renderer.camera) {
+                kruFindRendererFromGL(this);
+              }
+            } catch (e) { }
+            return orig.apply(this, arguments);
+          };
+          proto[name].__kru = true;
+        })(p, names[hi]);
+      }
+      p.__kruGLHooked = true;
+    }
+  } catch (e) { }
+}
+
+function kruHookCanvasLate() {
+  try {
+    var orig = HTMLCanvasElement.prototype.getContext;
+    if (orig && !orig.__kruCanvasHooked) {
+      HTMLCanvasElement.prototype.getContext = function(type, attrs) {
+        var ctx = orig.call(this, type, attrs);
+        if ((type === 'webgl' || type === 'webgl2') && ctx) {
+          try { kruFindRendererFromGL(ctx); } catch (e) { }
+          try {
+            if (!C.overlay && this.id === 'game-overlay') {
+              C.overlay = this;
+              C.ctx = ctx;
+              safe(function() { hookRenderOn(this); });
+            }
+          } catch (e) { }
+        }
+        return ctx;
+      };
+      orig.__kruCanvasHooked = true;
+    }
+  } catch (e) { }
+}
+
+function kruAcquireLate() {
+  if (C.ready) return;
+  safe(kruHookWebGL);
+  safe(kruHookCanvasLate);
+  try {
+    var ge = document.getElementById('game-overlay');
+    if (ge && !C.overlay) {
+      C.overlay = ge;
+      try { C.ctx = ge.getContext('2d'); } catch (e) { }
+      safe(function() { hookRenderOn(ge); });
+      var gl = ge.getContext('webgl') || ge.getContext('webgl2');
+      if (gl) safe(function() { kruFindRendererFromGL(gl); });
+    }
+  } catch (e) { }
+  safe(validate);
+}
+
   function resolveScan() {
     if (C.game && C.ready) return;
     var names;
@@ -637,7 +733,7 @@
     var h = document.createElement('div');
     h.id = 'kru-head';
     h.style.cssText = 'display:flex;align-items:center;gap:5px;padding:4px 6px;cursor:move;border-bottom:1px solid rgba(255,120,180,.25);border-radius:8px 8px 0 0;background:linear-gradient(180deg,rgba(255,110,170,.2),rgba(255,110,170,.04));';
-    h.innerHTML = '<span style="font-weight:700;font-size:10px;letter-spacing:.2px;">🦊 Yukakoo</span><span id="kru-v" style="opacity:.5;font-size:8px;">v8</span>';
+    h.innerHTML = '<span style="font-weight:700;font-size:10px;letter-spacing:.2px;">🦊 Yukakoo</span><span id="kru-v" style="opacity:.5;font-size:8px;">v9</span>';
     var minBtn = document.createElement('button');
     minBtn.id = 'kru-min';
     minBtn.textContent = '—';
@@ -897,6 +993,7 @@
   function boot() {
     safe(installHooks);
     safe(resolveScan);
+    safe(kruAcquireLate);
     safe(function () {
       try { S.min = localStorage.getItem('kru_min') === '1'; } catch (e) { }
     });
@@ -904,7 +1001,7 @@
     safe(kruDbgMount);
     safe(refreshStatus);
     safe(kruDbgPaint);
-    setInterval(function () { safe(resolveScan); safe(validate); safe(refreshStatus); safe(kruDbgPaint); }, 700);
+    setInterval(function () { safe(resolveScan); safe(kruAcquireLate); safe(validate); safe(refreshStatus); safe(kruDbgPaint); }, 700);
     kruInstallGuard();
     kruDragBind();
     setInterval(function () {
