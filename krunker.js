@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   if (window.__KRU) return;
-  var K = { v: 6, dbg: { g: 0, t: 0, f: 0, e: 0, last: '' } };
+  var K = { v: 7, dbg: { g: 0, t: 0, f: 0, e: 0, last: '' } };
   window.__KRU = K;
   window.addEventListener('error', function (ev) {
     try { K.dbg.e++; K.dbg.last = String((ev && ev.message) || 'err').slice(0, 34); } catch (e) { }
@@ -23,7 +23,7 @@
   };
 
   function isFn(v) { return typeof v === 'function'; }
-  function safe(fn) { try { fn(); } catch (e) { } }
+  function safe(fn) { try { fn(); } catch (e) { try { K.dbg.e++; K.dbg.last = (e && e.message) ? e.message : String(e); } catch (x) { } } }
   function plist() {
     var g = C.game;
     if (!g || !g.players) return null;
@@ -502,11 +502,58 @@
     if (espBox) espBox.innerHTML = svg + boxes.join('');
   }
 
+  function resolveScan() {
+    if (C.game && C.ready) return;
+    var names;
+    try { names = Object.getOwnPropertyNames(window); } catch (e) { return; }
+    var ge = null;
+    try { ge = document.getElementById('game-overlay'); } catch (e) { }
+    var game = null, owner = null, n = 0, i, j, o, ks, v;
+    function test(x) {
+      if (!x || (typeof x !== 'object' && typeof x !== 'function')) return;
+      n++;
+      try { if (!game && x.players && x.players.list && typeof x.players.list.length === 'number') game = x; } catch (e) { }
+      try { if (ge && !owner && x.canvas === ge) owner = x; } catch (e) { }
+    }
+    for (i = 0; i < names.length; i++) {
+      try { o = window[names[i]]; } catch (e) { continue; }
+      test(o);
+      if (game && owner) break;
+    }
+    if (!(game && owner)) {
+      var budget = 6000;
+      for (i = 0; i < names.length && budget > 0; i++) {
+        try { o = window[names[i]]; } catch (e) { continue; }
+        if (!o) continue;
+        var ot = typeof o;
+        if (ot !== 'object' && ot !== 'function') continue;
+        try { if (o === window || o.nodeType) continue; } catch (e) { continue; }
+        try { ks = Object.getOwnPropertyNames(o); } catch (e) { continue; }
+        if (ks.length > 300) continue;
+        for (j = 0; j < ks.length && budget > 0; j++) {
+          try { v = o[ks[j]]; } catch (e) { continue; }
+          budget--;
+          test(v);
+          if (game && owner) break;
+        }
+      }
+    }
+    C.scanN = n;
+    if (game) { C.gameCand = game; if (!C.game) C.game = game; }
+    if (owner && owner !== C.overlay) {
+      C.overlay = owner;
+      try { C.ctx = owner.canvas.getContext('2d'); } catch (e) { }
+      safe(function () { hookRenderOn(owner); });
+    }
+    if (game || owner) { C.scanHit = 1; validate(); }
+    else C.scanHit = 0;
+  }
+
   function refreshStatus() {
     var el = document.getElementById('kru-status');
     if (!el) return;
     var l = plist();
-    el.textContent = 'game:' + (C.game ? 'OK' : 'wait') + ' · me:' + (C.me ? 'OK' : 'wait') + ' · render:' + (C.renderer ? 'OK' : 'wait') + ' · ctrls:' + (C.controls ? 'OK' : 'wait') + ' · players:' + (l ? l.length : 0);
+    el.textContent = 'game:' + (C.game ? 'OK' : 'wait') + ' · me:' + (C.me ? 'OK' : 'wait') + ' · render:' + (C.renderer ? 'OK' : 'wait') + ' · ctrls:' + (C.controls ? 'OK' : 'wait') + ' · players:' + (l ? l.length : 0) + ' · scan:' + (C.scanHit ? 'hit' : (C.scanN || 0));
   }
 
   var menuEl = null, bodyEl = null;
@@ -520,7 +567,7 @@
     var h = document.createElement('div');
     h.id = 'kru-head';
     h.style.cssText = 'display:flex;align-items:center;gap:5px;padding:4px 6px;cursor:move;border-bottom:1px solid rgba(255,120,180,.25);border-radius:8px 8px 0 0;background:linear-gradient(180deg,rgba(255,110,170,.2),rgba(255,110,170,.04));';
-    h.innerHTML = '<span style="font-weight:700;font-size:10px;letter-spacing:.2px;">🦊 Yukakoo</span><span id="kru-v" style="opacity:.5;font-size:8px;">v6</span>';
+    h.innerHTML = '<span style="font-weight:700;font-size:10px;letter-spacing:.2px;">🦊 Yukakoo</span><span id="kru-v" style="opacity:.5;font-size:8px;">v7</span>';
     var minBtn = document.createElement('button');
     minBtn.id = 'kru-min';
     minBtn.textContent = '—';
@@ -772,13 +819,14 @@
         } else hit = 'hidden';
       }
       var line = 'v' + K.v + ' m' + (m ? 1 : 0) + ' g' + d.g + ' t' + d.t +
-        ' f' + d.f + ' e' + d.e + ' | ' + hit + (d.last ? ' | ' + d.last : '');
+        ' f' + d.f + ' e' + d.e + ' r' + (C.ready ? 1 : 0) + ' | ' + hit + (d.last ? ' | ' + d.last : '');
       if (el.textContent !== line) el.textContent = line;
     } catch (e) { }
   }
 
   function boot() {
     safe(installHooks);
+    safe(resolveScan);
     safe(function () {
       try { S.min = localStorage.getItem('kru_min') === '1'; } catch (e) { }
     });
@@ -786,7 +834,7 @@
     safe(kruDbgMount);
     safe(refreshStatus);
     safe(kruDbgPaint);
-    setInterval(function () { safe(validate); safe(refreshStatus); safe(kruDbgPaint); }, 700);
+    setInterval(function () { safe(resolveScan); safe(validate); safe(refreshStatus); safe(kruDbgPaint); }, 700);
     kruInstallGuard();
     kruDragBind();
     setInterval(function () {
